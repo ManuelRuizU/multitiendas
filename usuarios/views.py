@@ -1,22 +1,43 @@
 # usuarios/views.py
-from rest_framework import viewsets
+from rest_framework import viewsets, generics, permissions, status # Asegúrate de importar 'generics', 'permissions', 'status'
+from rest_framework.response import Response
 from django.contrib.auth.models import User
 from .models import PerfilVendedor, Cliente, Direccion
-from .serializers import UserSerializer, PerfilVendedorSerializer, ClienteSerializer, DireccionSerializer
-from rest_framework.permissions import IsAuthenticated, AllowAny # Importa permisos
+# Importa tu nuevo serializador para el registro y los otros serializadores
+from .serializers import UserSerializer, UserRegisterSerializer, PerfilVendedorSerializer, ClienteSerializer, DireccionSerializer
 
-# Permisos: puedes personalizar esto más adelante
-# Por ahora, IsAuthenticated para la mayoría, AllowAny para la creación de usuarios si es pública.
 
-class UserViewSet(viewsets.ReadOnlyModelViewSet): # ReadOnly para seguridad, no se editan users directamente por API
+# --- VISTA PARA REGISTRO DE USUARIOS (NUEVA CLASE) ---
+class RegisterUserView(generics.CreateAPIView):
     queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated] # Solo usuarios autenticados pueden ver usuarios
+    serializer_class = UserRegisterSerializer # Usa el serializador de registro aquí
+    permission_classes = [permissions.AllowAny] # Permite que cualquiera se registre
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        # Puedes retornar solo el username o un token si usas tokens
+        return Response({"username": user.username, "email": user.email, "id": user.id},
+                        status=status.HTTP_201_CREATED, headers=headers)
+
+    def perform_create(self, serializer):
+        # Llama al método create del serializador para manejar el hashing de la contraseña
+        return serializer.save()
+# --- FIN DE RegisterUserView ---
+
+
+# Tus ViewSets existentes (si los tenías)
+class UserViewSet(viewsets.ReadOnlyModelViewSet): # Este ViewSet es solo para ver usuarios (admin/lectura)
+    queryset = User.objects.all()
+    serializer_class = UserSerializer # Usa el UserSerializer básico (sin passwords)
+    permission_classes = [permissions.IsAdminUser] # Solo admins pueden ver todos los usuarios
 
 class PerfilVendedorViewSet(viewsets.ModelViewSet):
     queryset = PerfilVendedor.objects.all()
     serializer_class = PerfilVendedorSerializer
-    permission_classes = [IsAuthenticated] # Solo autenticados pueden ver/editar perfiles
+    permission_classes = [permissions.IsAuthenticated] # Solo autenticados pueden ver/editar perfiles
 
     # Opcional: Asegurar que un usuario solo pueda ver/editar su propio perfil
     def get_queryset(self):
@@ -28,7 +49,7 @@ class PerfilVendedorViewSet(viewsets.ModelViewSet):
 class ClienteViewSet(viewsets.ModelViewSet):
     queryset = Cliente.objects.all()
     serializer_class = ClienteSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     # Opcional: Asegurar que un usuario solo pueda ver/editar su propio perfil de cliente
     def get_queryset(self):
@@ -40,7 +61,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
 class DireccionViewSet(viewsets.ModelViewSet):
     queryset = Direccion.objects.all()
     serializer_class = DireccionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     # Asegurar que un usuario solo pueda ver/editar sus propias direcciones
     def get_queryset(self):
