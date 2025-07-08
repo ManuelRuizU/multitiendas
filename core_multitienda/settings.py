@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Terceros (Django REST Framework y CORS Headers)
     'rest_framework',
+    'rest_framework.authtoken',
     'corsheaders',
     # Tus aplicaciones personalizadas
     'usuarios',
@@ -145,3 +146,16 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# core_multitienda/settings.py
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication', # Asegúrate de que esta línea esté
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny' # ¡CORREGIDO! Ahora, por defecto, cualquiera puede acceder.
+                                                # Tus vistas con IsAuthenticated seguirán pidiendo token/sesión.
+    ]
+}
