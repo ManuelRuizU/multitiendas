@@ -1,19 +1,4 @@
-"""
-URL configuration for core_multitienda project.
 
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
 # core_multitienda/urls.py
 from django.contrib import admin
 from django.urls import path, include
@@ -27,12 +12,17 @@ urlpatterns = [
     path('api/tiendas/', include('tiendas.urls')),
     path('api/productos/', include('productos.urls')),
     path('api/pedidos/', include('pedidos.urls')),
-    path('api/plataforma/', include('plataforma_config.urls')), # La nueva API de configuración
+    path('api/plataforma/', include('plataforma_config.urls')),
 
-    # URLs para el login/logout del DRF browsable API (muy útil para testing)
+    # --- ¡AÑADE ESTAS LÍNEAS PARA DJOSER! ---
+    #path('api/auth/', include('djoser.urls')), # URLs generales de Djoser (registro, gestión de usuarios)
+    #path('api/auth/', include('djoser.urls.authtoken')), # URLs para autenticación con Token (login, logout)
+    # ----------------------------------------
+
+    # URLs para el login/logout del DRF browsable API (opcional, pero útil)
     path('api-auth/', include('rest_framework.urls')),
 ]
 
-# Solo sirve archivos de medios en modo de desarrollo
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    

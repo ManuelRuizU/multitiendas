@@ -105,26 +105,75 @@ class Cliente(models.Model):
         return f"Cliente Invitado: {self.nombre_completo or self.email or 'N/A'}"
 
 
+
+# --- ¡MODELO DIRECCION REVISADO Y EXPANDIDO! ---
 class Direccion(models.Model):
+    # Opciones para el tipo de propiedad
+    TIPO_PROPIEDAD_CHOICES = [
+        ('Casa', 'Casa'),
+        ('Edificio', 'Edificio'),
+        ('Condominio', 'Condominio'),
+    ]
+
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="direcciones")
-    etiqueta = models.CharField(max_length=50, blank=True, null=True)
-    direccion = models.CharField(max_length=255)
-    latitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    longitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    validada = models.BooleanField(default=False)
+    etiqueta = models.CharField(max_length=50, blank=True, null=True, help_text="Ej: Casa, Oficina, Principal")
+    
+    # Campos básicos obligatorios para cualquier dirección
+    calle = models.CharField(max_length=255, help_text="Nombre de la calle o avenida.")
+    numero = models.CharField(max_length=20, help_text="Número de la dirección.")
+    
+    # Nuevo campo para el tipo de propiedad
+    tipo_propiedad = models.CharField(
+        max_length=20, 
+        choices=TIPO_PROPIEDAD_CHOICES, 
+        default='Casa', # Valor por defecto si no se especifica
+        help_text="Selecciona el tipo de propiedad (Casa, Edificio, Condominio)."
+    )
+
+    # Campos específicos para Edificio/Condominio (son OPCIONALES)
+    departamento = models.CharField(max_length=20, blank=True, null=True, help_text="Número de departamento, oficina, etc.")
+    block = models.CharField(max_length=50, blank=True, null=True, help_text="Número o nombre del bloque/torre dentro del complejo (ej: Bloque A, Torre 3).")
+    nombre_condominio = models.CharField(max_length=100, blank=True, null=True, help_text="Nombre del condominio o complejo.")
+
+    # Campos de ubicación geográfica
+    comuna = models.CharField(max_length=100, help_text="Comuna o distrito.")
+    ciudad = models.CharField(max_length=100, help_text="Ciudad.")
+    region = models.CharField(max_length=100, help_text="Región o estado.")
+    codigo_postal = models.CharField(max_length=10, blank=True, null=True, help_text="Código postal.")
+    
+    # Campos para geolocalización
+    latitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Latitud obtenida de la validación.")
+    longitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Longitud obtenida de la validación.")
+    validada = models.BooleanField(default=False, help_text="Indica si la dirección ha sido validada por una API de mapas.")
+
+    # Otros campos de dirección
+    tipo_direccion = models.CharField(max_length=50, blank=True, null=True) # Ej: Envío, Facturación
+    principal = models.BooleanField(default=False, help_text="Define si es la dirección principal para este cliente.")
 
     class Meta:
         ordering = ["-id"]
         verbose_name_plural = "Direcciones"
 
     def __str__(self):
-        # Ahora el cliente puede no tener un user, así que adaptamos la representación
-        cliente_id_str = str(self.cliente.id) 
+        parts = [f"{self.calle} {self.numero}"]
+        if self.tipo_propiedad == 'Edificio' or self.tipo_propiedad == 'Condominio':
+            if self.nombre_condominio:
+                parts.append(f"Condominio {self.nombre_condominio}")
+            if self.block:
+                parts.append(f"Block {self.block}") # O "Torre", "Edificio"
+            if self.departamento:
+                parts.append(f"Depto. {self.departamento}")
+        
+        parts.extend([self.comuna, self.ciudad, self.region])
+        full_address = ", ".join(filter(None, parts))
+
+        cliente_info = ""
         if self.cliente.user:
-            cliente_id_str = self.cliente.user.username
+            cliente_info = self.cliente.user.username
         elif self.cliente.nombre_completo:
-            cliente_id_str = self.cliente.nombre_completo
+            cliente_info = self.cliente.nombre_completo
         elif self.cliente.email:
-            cliente_id_str = self.cliente.email
+            cliente_info = self.cliente.email
             
-        return f"{self.etiqueta or self.direccion} – {cliente_id_str}"
+        return f"{self.etiqueta or 'Dirección'}: {full_address} – Cliente: {cliente_info}"
+

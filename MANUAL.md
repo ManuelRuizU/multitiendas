@@ -447,3 +447,86 @@ Probar Creación de Usuario con Postman:
 Envía la solicitud.
 
 Verifica la Respuesta: Deberías ver un estado 201 Created y el JSON con los detalles del usuario (id, username, email).
+
+9. Interacción con APIs Autenticadas (Post-Registro/Login)
+
+    9.1. Usando el Token de Autenticación:
+
+        Explicar cómo el auth_token obtenido en el login se utiliza en futuras solicitudes a endpoints protegidos.
+
+        Ejemplo de cómo añadir el header Authorization: Token TU_TOKEN en Postman.
+
+    9.2. Creación de Perfiles de Cliente:
+
+        Detallar el endpoint, método (POST), headers y el cuerpo JSON (user_id, telefono).
+
+        Mencionar la importancia de obtener el id del usuario (ya sea del registro o consultándolo).
+
+    9.3. Gestión de Direcciones de Cliente:
+
+        Explicar el endpoint, método (POST), headers y el cuerpo JSON (cliente_id, etiqueta, direccion, etc.).
+
+        Subrayar que se necesita el id del cliente previamente creado.
+
+    9.4. Creación y Actualización de Perfiles de Vendedor:
+
+        Similar a los clientes, detallar cómo crear y actualizar PerfilVendedor una vez que un User ha sido autenticado.
+
+        Endpoint, método, headers y cuerpo JSON (user_id, rut, razon_social, giro, etc.).
+
+10. Estructura de APIs para otras Aplicaciones
+
+    10.1. API de Tiendas (tiendas app):
+
+        Describir el TiendaModel (nombre, descripción, perfil_vendedor FK, etc.).
+
+        Cómo crear TiendaSerializer y TiendaViewSet.
+
+        Endpoints básicos (/api/tiendas/, /api/tiendas/{id}/).
+
+        Consideraciones sobre permisos (solo vendedores pueden crear/editar sus tiendas).
+
+    10.2. API de Productos (productos app):
+
+        Descripción del ProductoModel (nombre, precio, tienda FK, stock, etc.).
+
+        Cómo crear ProductoSerializer y ProductoViewSet.
+
+        Endpoints (/api/productos/, /api/productos/{id}/).
+
+        Permisos (cualquiera puede ver, solo el vendedor de la tienda puede editar/eliminar).
+
+    10.3. API de Pedidos (pedidos app):
+
+        Modelos de Pedido y ItemPedido.
+
+        Serializadores y vistas (PedidoViewSet).
+
+        Lógica de carrito de compras y proceso de pago (esto podría ser más complejo y quizás una sección futura).
+
+        Permisos (clientes pueden crear sus pedidos, vendedores solo ver/actualizar sus pedidos).
+
+    10.4. API de Configuración de Plataforma (plataforma_config app):
+
+        Modelos para configuración global (ej., categorías, métodos de pago, etc.).
+
+        Serializadores y vistas.
+
+        Permisos (solo administradores).
+
+11. Testing de APIs
+
+    11.1. Pruebas Unitarias con pytest o unittest:
+
+        Cómo escribir tests para serializadores, modelos y vistas.
+
+    11.2. Pruebas de Integración con Postman:
+
+        Recalcar la importancia de usar colecciones de Postman para organizar las solicitudes.
+
+        Uso de variables de entorno en Postman para manejar tokens y IDs dinámicamente.
+
+12. Despliegue (Básico)
+
+    Consideraciones para producción (DEBUG=False, SECRET_KEY, ALLOWED_HOSTS, bases de datos, servir estáticos/medios). Esto podría ser una sección más avanzada, pero es bueno mencionarla.
+
