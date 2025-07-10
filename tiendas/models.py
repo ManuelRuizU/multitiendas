@@ -81,3 +81,5 @@ class RadioEnvio(models.Model):
 
     def __str__(self):
         return f"{self.tienda.nombre} → {self.distancia_max_km} km = ${self.costo_envio}"
+    
+    

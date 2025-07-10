@@ -4,11 +4,13 @@ from .models import Tienda, RadioEnvio
 from usuarios.serializers import PerfilVendedorSerializer # Importamos el serializador de PerfilVendedor
 from usuarios.models import PerfilVendedor
 
-# Serializador para RadioEnvio (se usará como anidado en TiendaSerializer)
+# Serializador para RadioEnvio
 class RadioEnvioSerializer(serializers.ModelSerializer):
+    tienda = serializers.PrimaryKeyRelatedField(queryset=Tienda.objects.all()) # Esta línea ya la agregaste y corregimos el KeyError con ella
+
     class Meta:
         model = RadioEnvio
-        fields = ['id', 'distancia_max_km', 'costo_envio']
+        fields = ['id', 'tienda', 'distancia_max_km', 'costo_envio'] # Y esta línea incluye 'tienda'
         read_only_fields = ['id']
 
 # Serializador para Tienda
