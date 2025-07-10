@@ -2,6 +2,7 @@
 from rest_framework import serializers
 from .models import Tienda, RadioEnvio
 from usuarios.serializers import PerfilVendedorSerializer # Importamos el serializador de PerfilVendedor
+from usuarios.models import PerfilVendedor
 
 # Serializador para RadioEnvio (se usará como anidado en TiendaSerializer)
 class RadioEnvioSerializer(serializers.ModelSerializer):
@@ -12,12 +13,11 @@ class RadioEnvioSerializer(serializers.ModelSerializer):
 
 # Serializador para Tienda
 class TiendaSerializer(serializers.ModelSerializer):
-    # Incluimos el serializador de PerfilVendedor si quieres ver los detalles del vendedor
-    vendedor = PerfilVendedorSerializer(read_only=True) 
+    vendedor = PerfilVendedorSerializer(read_only=True)
     # Campo para poder enviar el ID del vendedor al crear/actualizar la tienda
-    vendedor_id = serializers.PrimaryKeyRelatedField(queryset=Tienda.objects.all(), source='vendedor', write_only=True) # O PerfilVendedor.objects.all()
+    vendedor_id = serializers.PrimaryKeyRelatedField(queryset=PerfilVendedor.objects.all(), source='vendedor', write_only=True) # <-- ¡CORREGIDO!
 
-    radios_envio = RadioEnvioSerializer(many=True, read_only=True) # Muestra los radios de envío anidados, solo lectura
+    radios_envio = RadioEnvioSerializer(many=True, read_only=True)
 
     class Meta:
         model = Tienda
