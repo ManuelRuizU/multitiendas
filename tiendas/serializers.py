@@ -27,3 +27,5 @@ class TiendaSerializer(serializers.ModelSerializer):
             'activo', 'vendedor', 'vendedor_id', 'radios_envio'
         ]
         read_only_fields = ['id', 'slug', 'fecha_creacion']
+        
+        
