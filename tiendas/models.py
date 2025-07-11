@@ -3,6 +3,7 @@ from django.db import models
 from django.utils.text import slugify
 from django.core.exceptions import ValidationError
 from usuarios.models import PerfilVendedor # ¡Importamos PerfilVendedor desde la app usuarios!
+from decimal import Decimal # Necesario para calcular_costo_envio
 
 # ------------------------------------------------------------------
 # 1. TIENDA
@@ -65,6 +66,23 @@ class Tienda(models.Model):
     def __str__(self):
         return self.nombre
 
+    def calcular_costo_envio(self, distancia_km):
+        # ... (código existente sin cambios significativos aquí) ...
+        distancia_decimal = Decimal(str(distancia_km))
+
+        radio_aplicable = self.radios_envio.filter(
+            distancia_max_km__gte=distancia_decimal
+        ).order_by('distancia_max_km').first()
+
+        if radio_aplicable:
+            # Si el campo envio_gratis es True para este radio, el costo es 0.
+            # De lo contrario, devuelve el costo_envio normal.
+            # Puedes incluso omitir el if y simplemente retornar radio_aplicable.costo_envio
+            # Si el vendedor configura 0, ya está implícito.
+            return radio_aplicable.costo_envio # Este ya será 0 si el vendedor lo configuró así
+        else:
+            return None
+
 
 # ------------------------------------------------------------------
 # 2. RADIO DE ENVÍO
@@ -73,6 +91,8 @@ class RadioEnvio(models.Model):
     tienda = models.ForeignKey(Tienda, on_delete=models.CASCADE, related_name="radios_envio")
     distancia_max_km = models.DecimalField(max_digits=4, decimal_places=1)
     costo_envio = models.PositiveIntegerField()
+    # ¡NUEVO CAMPO! Para indicar si este radio específico ofrece envío gratis
+    envio_gratis = models.BooleanField(default=False) # Por defecto no es gratis
 
     class Meta:
         ordering = ["distancia_max_km"]
@@ -80,6 +100,8 @@ class RadioEnvio(models.Model):
         verbose_name_plural = "Radios de Envío"
 
     def __str__(self):
-        return f"{self.tienda.nombre} → {self.distancia_max_km} km = ${self.costo_envio}"
-    
+        # Actualizamos la representación para incluir si es gratis
+        if self.envio_gratis:
+            return f"{self.tienda.nombre} → {self.distancia_max_km} km (GRATIS)"
+        return f"{self.tienda.nombre} → {self.distancia_max_km} km = ${self.costo_envio}"
     

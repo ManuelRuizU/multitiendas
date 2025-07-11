@@ -10,7 +10,7 @@ class RadioEnvioSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RadioEnvio
-        fields = ['id', 'tienda', 'distancia_max_km', 'costo_envio'] # Y esta línea incluye 'tienda'
+        fields = ['id', 'tienda', 'distancia_max_km', 'costo_envio', 'envio_gratis'] # Y esta línea incluye 'tienda'
         read_only_fields = ['id']
 
 # Serializador para Tienda
@@ -29,5 +29,7 @@ class TiendaSerializer(serializers.ModelSerializer):
             'activo', 'vendedor', 'vendedor_id', 'radios_envio'
         ]
         read_only_fields = ['id', 'slug', 'fecha_creacion']
+        
+        
         
         
