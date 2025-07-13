@@ -9,7 +9,7 @@ class RadioEnvioInline(admin.TabularInline):
 
 @admin.register(Tienda)
 class TiendaAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'vendedor', 'activo', 'direccion', 'telefono', 'fecha_creacion')
+    list_display = ('id','nombre', 'vendedor', 'activo', 'direccion', 'telefono', 'fecha_creacion')
     list_filter = ('activo', 'vendedor')
     search_fields = ('nombre', 'vendedor__user__username', 'direccion')
     prepopulated_fields = {'slug': ('nombre',)}
