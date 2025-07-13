@@ -13,6 +13,7 @@ urlpatterns = [
     path('api/productos/', include('productos.urls')),
     path('api/pedidos/', include('pedidos.urls')),
     path('api/plataforma/', include('plataforma_config.urls')),
+    path('api/carritos/', include('carritos.urls')),
 
     # --- ¡AÑADE ESTAS LÍNEAS PARA DJOSER! ---
     #path('api/auth/', include('djoser.urls')), # URLs generales de Djoser (registro, gestión de usuarios)

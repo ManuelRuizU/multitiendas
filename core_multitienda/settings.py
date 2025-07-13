@@ -48,7 +48,8 @@ INSTALLED_APPS = [
     'tiendas',
     'productos',
     'pedidos',
-    'plataforma_config', # ¡La nueva app!
+    'plataforma_config',
+    'carritos', 
 ]
 
 
