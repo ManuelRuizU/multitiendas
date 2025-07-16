@@ -176,4 +176,6 @@ class Direccion(models.Model):
             cliente_info = self.cliente.email
             
         return f"{self.etiqueta or 'Dirección'}: {full_address} – Cliente: {cliente_info}"
+    
+    
 

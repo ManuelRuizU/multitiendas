@@ -40,7 +40,7 @@ Para interactuar con gran parte de tu API, necesitarás un token de autenticaci�
 
     Método: POST
 
-    URL: {{base_url}}/api/auth/registro/
+    http://127.0.0.1:8000/api/usuarios/register/
 
     Headers:
 
@@ -64,7 +64,7 @@ Para interactuar con gran parte de tu API, necesitarás un token de autenticaci�
 
     Método: POST
 
-    URL: {{base_url}}/api/auth/registro/
+    http://127.0.0.1:8000/api/usuarios/register/
 
     Headers:
 
@@ -74,16 +74,13 @@ Para interactuar con gran parte de tu API, necesitarás un token de autenticaci�
     JSON
 
     {
-        "username": "usuario_vendedor_1",
-        "email": "vendedor1@example.com",
-        "password": "mi_password_seguro_456",
-        "password2": "mi_password_seguro_456",
-        "is_customer": false,
-        "is_seller": true,
-        "razon_social": "Mi Empresa de Ventas S.A.",
-        "rut": "12345678-9",
-        "direccion": "Calle Falsa 123, Ciudad"
-    }
+    "username": "vendedor1",
+    "email": "vendedor1@example.com",
+    "first_name": "Vendedor",
+    "last_name": "1",
+    "password": "password123",
+    "password2": "password123"
+}
 
     Enviar y Verificar: Deberías recibir un 201 Created con los datos del vendedor y su token. Guarda este token en otra variable de entorno (ej. seller_auth_token) o simplemente tenlo a mano.
 
@@ -93,7 +90,7 @@ Si por alguna razón pierdes un token, puedes volver a obtenerlo:
 
     Método: POST
 
-    URL: {{base_url}}/api/auth/login/
+    URL: http://127.0.0.1:8000/api/auth/token/
 
     Headers:
 
@@ -103,8 +100,8 @@ Si por alguna razón pierdes un token, puedes volver a obtenerlo:
     JSON
 
     {
-        "username": "usuario_vendedor_1",
-        "password": "mi_password_seguro_456"
+    "username": "vendedor1",
+    "password": "password123"
     }
 
     Enviar y Verificar: Recibirás un 200 OK con el token.

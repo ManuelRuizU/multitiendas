@@ -1,9 +1,9 @@
 # usuarios/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-# Asegúrate de importar tu nueva vista de registro aquí
-from .views import CustomAuthToken, UserViewSet, PerfilVendedorViewSet, ClienteViewSet, DireccionViewSet, RegisterUserView
-from django.views.decorators.csrf import csrf_exempt # <-- ¡Añade esta importación!
+# Eliminamos CustomAuthToken de aquí ya que fue eliminada de views.py
+# También eliminamos csrf_exempt, ya que no es necesario para DRF con JWT
+from .views import UserViewSet, PerfilVendedorViewSet, ClienteViewSet, DireccionViewSet, RegisterUserView
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet)
@@ -15,11 +15,12 @@ urlpatterns = [
     # Esto incluye todas las URLs generadas por el router (para ViewSets)
     path('', include(router.urls)),
     
-    # AÑADE ESTA LÍNEA ESPECÍFICA PARA LA VISTA DE REGISTRO
-    # Esto creará la URL http://127.0.0.1:8000/api/usuarios/register/
-    path('register/', csrf_exempt(RegisterUserView.as_view()), name='user-register'), # <-- ¡CAMBIO AQUÍ!
+    # URL para la vista de registro. Ya no necesita csrf_exempt.
+    # El CSRF está desactivado globalmente para la API o manejado por DRF.
+    path('register/', RegisterUserView.as_view(), name='user-register'), 
     
-    # Para la vista de obtención de token, generalmente no necesita csrf_exempt si usas TokenAuthentication,
-    # pero si te da problemas, podrías aplicarlo también. Por ahora, lo dejamos sin.
-    path('auth/token/', CustomAuthToken.as_view(), name='obtain-token'),
+    # ¡MUY IMPORTANTE! Esta línea debe ELIMINARSE.
+    # La obtención de tokens JWT ahora se maneja en el urls.py principal (core_multitienda/urls.py)
+    # a través de las vistas de rest_framework_simplejwt.
+    # path('auth/token/', CustomAuthToken.as_view(), name='obtain-token'),
 ]

@@ -122,3 +122,5 @@ class DireccionSerializer(serializers.ModelSerializer):
     # el campo 'cliente' en el serializador puede ser required=False y allow_null=True
     # Y la vista (perform_create) buscaría el cliente del usuario autenticado.
     # Pero por ahora, asumo que lo pasarás en el body.
+    
+    
