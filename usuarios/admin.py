@@ -3,17 +3,21 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 from .models import PerfilVendedor, Cliente, Direccion
+# Importa el modelo Tienda para poder referenciarlo en el admin
+from tiendas.models import Tienda # ¡Importado para usar en PerfilVendedorAdmin!
 
 # Inline para PerfilVendedor en el admin de User
+# Permite editar el PerfilVendedor directamente desde la página de edición de un User
 class PerfilVendedorInline(admin.StackedInline):
     model = PerfilVendedor
-    can_delete = False
+    can_delete = False # Evita que el PerfilVendedor se borre si se desasocia del User
     verbose_name_plural = 'Perfil de Vendedor'
     fields = ('telefono', 'rut', 'razon_social', 'giro', 'direccion_fiscal')
-    # readonly_fields = ('fecha_registro',) # Si quieres que la fecha de registro no sea editable
+    # Si 'fecha_registro' existe en tu modelo PerfilVendedor y no debe ser editable:
+    # readonly_fields = ('fecha_registro',) 
 
 # Inline para Direccion dentro del admin de Cliente
-# Esto permite ver y añadir direcciones directamente desde la vista de detalle de un Cliente
+# Permite ver y añadir direcciones directamente desde la vista de detalle de un Cliente
 class DireccionInline(admin.TabularInline): # TabularInline es más compacto
     model = Direccion
     extra = 0 # No mostrar campos extra vacíos por defecto
@@ -22,8 +26,6 @@ class DireccionInline(admin.TabularInline): # TabularInline es más compacto
         'comuna', 'ciudad', 'region', 'codigo_postal', 'tipo_propiedad',
         'latitud', 'longitud', 'validada', 'tipo_direccion', 'principal'
     ]
-    # Si quieres que la dirección principal solo pueda ser una por cliente,
-    # deberás añadir validación en el serializador o en el modelo Direccion's clean method.
 
 # Admin para el modelo Cliente
 @admin.register(Cliente)
@@ -65,15 +67,13 @@ class ClienteAdmin(admin.ModelAdmin):
     numero_direcciones.short_description = "Nº Direcciones"
 
     def get_direccion_principal_display(self, obj):
-        # Busca la dirección principal del cliente
         principal_address = obj.direcciones.filter(principal=True).first()
         if principal_address:
-            # Reconstruye la dirección legiblemente (similar a Direccion.__str__)
             parts = [f"{principal_address.calle} {principal_address.numero}"]
             if principal_address.departamento:
                 parts.append(f"Depto. {principal_address.departamento}")
-            parts.extend([principal_address.comuna, principal_address.ciudad])
-            return ", ".join(filter(None, parts))
+            parts.extend(filter(None, [principal_address.comuna, principal_address.ciudad]))
+            return ", ".join(parts)
         return "N/A"
     get_direccion_principal_display.short_description = "Dir. Principal"
 
@@ -118,7 +118,40 @@ class DireccionAdmin(admin.ModelAdmin):
     get_cliente_display.short_description = "Cliente"
 
 
-# Desregistra el modelo User de Django si ya está registrado para registrarlo con tu Admin personalizado
+# --- CLASE ADMIN PARA PERFILVENDEDOR INDEPENDIENTE ---
+@admin.register(PerfilVendedor)
+class PerfilVendedorAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'user', 
+        'get_tiendas_nombres', # <-- ¡CAMBIADO! Método para mostrar los nombres de las tiendas
+        'giro',
+        'telefono',
+        'razon_social',
+    )
+    # Ajuste search_fields para buscar por el nombre de las tiendas asociadas
+    search_fields = (
+        'user__username',
+        'razon_social',
+        'rut',
+        'giro',
+        'tiendas__nombre', # <-- Permite buscar por el nombre de la tienda relacionada
+    )
+    list_filter = ('giro',) 
+    raw_id_fields = ('user',) 
+
+    def get_tiendas_nombres(self, obj):
+        # Un vendedor puede tener múltiples tiendas, así que listamos sus nombres
+        # El related_name para Tienda a PerfilVendedor es 'tiendas'
+        tiendas = obj.tiendas.all()
+        if tiendas.exists():
+            return ", ".join([tienda.nombre for tienda in tiendas])
+        return "N/A"
+    get_tiendas_nombres.short_description = 'Nombres de Tiendas'
+    # Opcional: ordenar por el nombre de la primera tienda o por la cantidad de tiendas
+    # get_tiendas_nombres.admin_order_field = 'tiendas__nombre' # Esto puede ser complicado con múltiples tiendas
+
+# Desregistra el modelo User de Django si ya está registrado (para evitar errores)
 try:
     admin.site.unregister(User)
 except admin.sites.NotRegistered:
@@ -127,7 +160,7 @@ except admin.sites.NotRegistered:
 # Registra tu UserAdmin personalizado
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    inlines = (PerfilVendedorInline,) # Quitamos ClienteInline de aquí, ahora Cliente tiene su propio admin
+    inlines = (PerfilVendedorInline,) # PerfilVendedor se sigue mostrando como inline en la vista de User
     list_display = BaseUserAdmin.list_display + ('has_seller_profile', 'has_customer_profile')
 
     def has_seller_profile(self, obj):
@@ -136,9 +169,7 @@ class UserAdmin(BaseUserAdmin):
     has_seller_profile.short_description = 'Es Vendedor'
 
     def has_customer_profile(self, obj):
-        return hasattr(obj, 'cliente_profile') and obj.cliente_profile is not None # Usar 'cliente_profile'
+        # Asumiendo que el related_name en tu Cliente.user OneToOneField es 'cliente_profile'
+        return hasattr(obj, 'cliente_profile') and obj.cliente_profile is not None 
     has_customer_profile.boolean = True
     has_customer_profile.short_description = 'Es Cliente'
-
-# Ya no necesitas admin.site.register(Direccion) porque usamos @admin.register para DireccionAdmin
-# Y Cliente ya está registrado con @admin.register(Cliente)

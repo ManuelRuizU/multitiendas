@@ -28,7 +28,7 @@ class Carrito(models.Model):
 
     # Validación a nivel de modelo para asegurar que al menos uno de los campos esté presente.
     def clean(self):
-        # Un carrito debe estar asociado a un usuario O a un guest_id, pero no a ambos a la vez.
+          # Un carrito debe estar asociado a un usuario O a un guest_id, pero no a ambos a la vez.
         if self.usuario and self.guest_id:
             raise ValidationError('Un carrito no puede tener un usuario asociado y un guest_id al mismo tiempo.')
         if not self.usuario and not self.guest_id:
@@ -47,14 +47,17 @@ class Carrito(models.Model):
 
     @property
     def total_items(self):
+        # Cuenta la cantidad de tipos de productos distintos en el carrito
         return self.items.count()
     
     @property
     def cantidad_total_productos(self):
+        # Suma la cantidad de todos los productos en el carrito
         return sum(item.cantidad for item in self.items.all())
 
     @property
     def subtotal_total(self):
+        # Suma el subtotal de todos los ítems del carrito
         return sum(item.subtotal for item in self.items.all())
 
 
@@ -70,17 +73,18 @@ class ItemCarrito(models.Model):
         related_name='items_carrito'
     )
     cantidad = models.PositiveIntegerField(default=1)
-    precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+    precio_unitario = models.DecimalField(max_digits=10, decimal_places=0) # Ajusta decimal_places si tus precios son enteros
 
     class Meta:
         verbose_name = "Ítem de Carrito"
         verbose_name_plural = "Ítems de Carrito"
-        unique_together = ('carrito', 'producto')
+        unique_together = ('carrito', 'producto') # Un producto solo puede estar una vez en el mismo carrito
         ordering = ['id']
 
     def save(self, *args, **kwargs):
+        # Si es un nuevo ítem, guarda el precio actual del producto
         if not self.pk:
-            self.precio_unitario = self.producto.precio_efectivo
+            self.precio_unitario = self.producto.precio_efectivo # O precio_tarjeta, según tu lógica
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -89,3 +93,5 @@ class ItemCarrito(models.Model):
     @property
     def subtotal(self):
         return self.cantidad * self.precio_unitario
+
+

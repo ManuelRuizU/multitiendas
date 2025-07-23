@@ -1,24 +1,29 @@
 # tiendas/serializers.py
 from rest_framework import serializers
 from .models import Tienda, RadioEnvio
-from usuarios.serializers import PerfilVendedorSerializer # Importamos el serializador de PerfilVendedor
-from usuarios.models import PerfilVendedor
+# No necesitamos importar PerfilVendedorSerializer ni PerfilVendedor aquí
+# si solo mostramos el username del vendedor o si la asignación la hace la vista.
 
 # Serializador para RadioEnvio
 class RadioEnvioSerializer(serializers.ModelSerializer):
-    tienda = serializers.PrimaryKeyRelatedField(queryset=Tienda.objects.all()) # Esta línea ya la agregaste y corregimos el KeyError con ella
+    # Permite enviar el ID de la tienda al crear/actualizar
+    tienda = serializers.PrimaryKeyRelatedField(queryset=Tienda.objects.all())
+    # Campo de solo lectura para mostrar el nombre de la tienda en las respuestas GET
+    tienda_nombre = serializers.ReadOnlyField(source='tienda.nombre')
 
     class Meta:
         model = RadioEnvio
-        fields = ['id', 'tienda', 'distancia_max_km', 'costo_envio', 'envio_gratis'] # Y esta línea incluye 'tienda'
-        read_only_fields = ['id']
+        fields = ['id', 'tienda', 'tienda_nombre', 'distancia_max_km', 'costo_envio', 'envio_gratis']
+        read_only_fields = ['id', 'tienda_nombre'] # 'id' y 'tienda_nombre' son de solo lectura
 
 # Serializador para Tienda
 class TiendaSerializer(serializers.ModelSerializer):
-    vendedor = PerfilVendedorSerializer(read_only=True)
-    # Campo para poder enviar el ID del vendedor al crear/actualizar la tienda
-    vendedor_id = serializers.PrimaryKeyRelatedField(queryset=PerfilVendedor.objects.all(), source='vendedor', write_only=True) # <-- ¡CORREGIDO!
+    # Campo de solo lectura para mostrar el username del vendedor en las respuestas GET
+    # Este campo es solo para la salida (GET), no para la entrada (POST/PUT).
+    vendedor_username = serializers.ReadOnlyField(source='vendedor.user.username')
 
+    # Serializador anidado para mostrar los radios de envío de la tienda
+    # Es de solo lectura, lo que significa que no se espera en la entrada al crear/actualizar la tienda.
     radios_envio = RadioEnvioSerializer(many=True, read_only=True)
 
     class Meta:
@@ -26,10 +31,13 @@ class TiendaSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'nombre', 'slug', 'descripcion', 'direccion', 'latitud', 'longitud',
             'telefono', 'email', 'url', 'horario_atencion', 'logo', 'fecha_creacion',
-            'activo', 'vendedor', 'vendedor_id', 'radios_envio'
+            'activo', 
+            'vendedor_username', # Incluido en los campos para la salida de la API
+            'radios_envio'
         ]
-        read_only_fields = ['id', 'slug', 'fecha_creacion']
-        
-        
-        
-        
+        # --- ¡CAMBIOS CLAVE AQUÍ! ---
+        # 'vendedor' (el campo ForeignKey real en el modelo) debe ser de solo lectura.
+        # Esto le dice al serializador que no espere 'vendedor' en la entrada (POST/PUT).
+        # La vista (perform_create) se encargará de asignarlo.
+        # 'vendedor_username' es un campo derivado, por lo tanto, solo lectura.
+        read_only_fields = ['id', 'slug', 'fecha_creacion', 'vendedor', 'vendedor_username'] 

@@ -19,3 +19,5 @@ urlpatterns = [
     path('fusionar_carrito/', CarritoViewSet.as_view({'post': 'fusionar_carrito'}), name='fusionar-carrito'),
 ]
 
+
+
