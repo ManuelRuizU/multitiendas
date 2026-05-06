@@ -1,0 +1,21 @@
+{
+  "name": "mi_plataforma_multitienda",
+  "version": "1.0.0",
+  "description": "proyecto Toma pedidos en Python &amp; Django",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.12",
+    "tailwindcss": "^4.1.12"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.12"
+  }
+}

@@ -63,6 +63,3 @@ class CarritoSerializer(serializers.ModelSerializer):
         # No es necesario validar 'not data.get('usuario') and not data.get('guest_id')' aquí,
         # ya que la vista se encarga de crear el carrito con uno u otro.
         return data
-
-
-    

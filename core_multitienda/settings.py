@@ -1,97 +1,150 @@
 # core_multitienda/settings.py
-
 from pathlib import Path
-from datetime import timedelta # ¡Necesario para configurar las duraciones de los tokens JWT!
+from datetime import timedelta
+import os
+import environ
+from google.oauth2 import service_account
 
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+# ------------------------------------------------------------------
+# RUTAS BASE
+# ------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# ------------------------------------------------------------------
+# VARIABLES DE ENTORNO
+# Lee el archivo .env en la raíz del proyecto.
+# Ejemplo de .env:
+#   SECRET_KEY=tu-clave-secreta
+#   DEBUG=True
+#   GOOGLE_MAPS_API_KEY=AIza...
+#   GS_BUCKET_NAME=mi-bucket
+#   GS_CREDENTIALS=/ruta/a/credentials.json
+# ------------------------------------------------------------------
+env = environ.Env(
+    DEBUG=(bool, False),
+    GOOGLE_ANALYTICS_ID=(str, ''),
+)
+environ.Env.read_env(env_file=os.path.join(BASE_DIR, '.env'))
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-e-)*76i6#rxx@1m&)!o2wkwjxla#m!ddu(#cbxt-2hbx72725x'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# ------------------------------------------------------------------
+# SEGURIDAD
+# ------------------------------------------------------------------
+SECRET_KEY = env('SECRET_KEY')
+DEBUG = env('DEBUG')
+
+# IMPORTANTE: En producción, reemplaza con tu dominio real.
+# Ej: ['mitienda.com', 'www.mitienda.com']
+ALLOWED_HOSTS = [
+    '127.0.0.1',
+    'localhost',
+    'DESKTOP-228SR5A',
+    'mi_tienda_de_prueba.127.0.0.1.xip.io',
+    'mi_tienda_de_prueba.localhost.xip.io',
+]
+
+# Dominio principal de la plataforma para manejo de subdominios.
+# IMPORTANTE: Cambia esto a tu dominio real en producción.
+MAIN_DOMAIN = '127.0.0.1:8000'
 
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'DESKTOP-228SR5A'] # Tu nombre de host añadido
-
-
-# Application definition
-
+# ------------------------------------------------------------------
+# APLICACIONES INSTALADAS
+# ------------------------------------------------------------------
 INSTALLED_APPS = [
+    # Django core
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # Terceros (Django REST Framework, CORS Headers, y Simple JWT)
-    'rest_framework',
-    # 'rest_framework.authtoken', # Comentado/Eliminado ya que usaremos JWT con simple_jwt
-    'corsheaders',
-    'rest_framework_simplejwt', # ¡Asegúrate de que esta línea esté presente para JWT!
-    # 'djoser', # Descomentar si decides usar Djoser para registro/auth más avanzado
 
-    # Tus aplicaciones personalizadas
+    # Terceros
+    'storages',                               # Google Cloud Storage
+    'rest_framework',                         # Django REST Framework
+    'corsheaders',                            # CORS Headers
+    'rest_framework_simplejwt',               # Simple JWT
+    'rest_framework_simplejwt.token_blacklist', # Blacklist de tokens JWT
+
+    # Apps del proyecto
     'usuarios',
     'tiendas',
     'productos',
     'pedidos',
+    'carritos',
+    'repartidores',
+    'codigos_qr',
     'plataforma_config',
-    'carritos', 
 ]
 
 
+# ------------------------------------------------------------------
+# MIDDLEWARE
+# ------------------------------------------------------------------
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware', # Permite peticiones de diferentes orígenes
+    'corsheaders.middleware.CorsMiddleware',        # Debe ir antes de CommonMiddleware
     'django.middleware.common.CommonMiddleware',
-    # 'django.middleware.csrf.CsrfViewMiddleware', # Comentado para APIs REST que usan tokens
+    'tiendas.middleware.TiendaSubdominioMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 
-# Configuración de CORS Headers
-CORS_ALLOW_ALL_ORIGINS = True # ¡¡¡ADVERTENCIA: CAMBIAR A FALSE EN PRODUCCIÓN Y USAR CORS_ALLOWED_ORIGINS!!!
-                               # Para desarrollo, CORS_ALLOW_ALL_ORIGINS = True es útil, pero inseguro en producción.
+# ------------------------------------------------------------------
+# CORS
+# En desarrollo: permite todos los orígenes.
+# En producción: define los orígenes permitidos explícitamente.
+# ------------------------------------------------------------------
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = [
+        # Agrega aquí los dominios permitidos en producción
+        # 'https://tudominio.com',
+        # 'https://www.tudominio.com',
+    ]
 
-# CORS_ALLOWED_ORIGINS = [ # Para producción, descomentar y listar tus frontends
-#     "http://localhost:8000", 
-#     "http://127.0.0.1:8000",
-#     # "https://tudominiofrontend.com",
-# ]
 
+# ------------------------------------------------------------------
+# URLs Y WSGI
+# ------------------------------------------------------------------
 ROOT_URLCONF = 'core_multitienda.urls'
+WSGI_APPLICATION = 'core_multitienda.wsgi.application'
 
+
+# ------------------------------------------------------------------
+# TEMPLATES
+# ------------------------------------------------------------------
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'core_multitienda' / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'core_multitienda.context_processors.google_analytics',
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'core_multitienda.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
+# ------------------------------------------------------------------
+# BASE DE DATOS
+# SQLite para desarrollo. En producción migrar a PostgreSQL.
+# ------------------------------------------------------------------
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -100,56 +153,70 @@ DATABASES = {
 }
 
 
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+# ------------------------------------------------------------------
+# AUTENTICACIÓN
+# ------------------------------------------------------------------
+AUTH_USER_MODEL = 'usuarios.CustomUser'
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
+# ------------------------------------------------------------------
+# INTERNACIONALIZACIÓN
+# ------------------------------------------------------------------
 LANGUAGE_CODE = 'es-cl'
-
 TIME_ZONE = 'America/Santiago'
-
 USE_I18N = True
-
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
+# ------------------------------------------------------------------
+# ARCHIVOS ESTÁTICOS
+# ------------------------------------------------------------------
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
+# ------------------------------------------------------------------
+# ARCHIVOS DE MEDIA
+# En desarrollo: se sirven localmente desde /mediafiles/.
+# En producción: se sirven desde Google Cloud Storage.
+# ------------------------------------------------------------------
+if DEBUG:
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = BASE_DIR / 'mediafiles'
+    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+else:
+    # Google Cloud Storage — solo en producción
+    GS_BUCKET_NAME = env('GS_BUCKET_NAME')
+    GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
+        env('GS_CREDENTIALS')  # Ruta al archivo JSON de credenciales
+    )
+    DEFAULT_FILE_STORAGE = 'storages.backends.gcloud.GoogleCloudStorage'
+    MEDIA_URL = f'https://storage.googleapis.com/{GS_BUCKET_NAME}/'
+
+
+# ------------------------------------------------------------------
+# DEFAULT PRIMARY KEY
+# ------------------------------------------------------------------
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# Django REST Framework (DRF) Configuration
+# ------------------------------------------------------------------
+# DJANGO REST FRAMEWORK
+# ------------------------------------------------------------------
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication', # ¡Autenticación principal con JWT!
-        'rest_framework.authentication.SessionAuthentication', # Útil para la interfaz browsable de DRF
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny', # Por defecto, cualquiera puede acceder; tus vistas pueden ser más restrictivas
+        'rest_framework.permissions.AllowAny',
     ),
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
@@ -159,37 +226,49 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.JSONParser',
         'rest_framework.parsers.FormParser',
         'rest_framework.parsers.MultiPartParser',
-    )
+    ),
 }
 
-# Simple JWT Configuration
+
+# ------------------------------------------------------------------
+# SIMPLE JWT
+# CORRECCIÓN: El nombre correcto es SIMPLE_JWT (no REST_FRAMEWORK_SIMPLEJWT).
+# El nombre incorrecto causaba que toda esta configuración fuera ignorada.
+# ------------------------------------------------------------------
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=50),   # Token de acceso de corta duración
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),    # Token de refresco de larga duración
-    'ROTATE_REFRESH_TOKENS': False,                 # No rotar tokens de refresco (para mayor simplicidad)
-    'BLACKLIST_AFTER_ROTATION': False,              # No añadir a la blacklist después de rotar (si ROTATE_REFRESH_TOKENS es True)
-    'UPDATE_LAST_LOGIN': False,                     # No actualizar last_login del usuario con cada token
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
 
-    'ALGORITHM': 'HS256',                           # Algoritmo de firma del token
-    'SIGNING_KEY': SECRET_KEY,                      # Clave de firma (usa tu SECRET_KEY de Django)
-    'VERIFYING_KEY': None,                          # Para RSA/ECDSA, pero None para HS256
-    'AUDIENCE': None,                               # Audiencia del token (opcional)
-    'ISSUER': None,                                 # Emisor del token (opcional)
-    'JWK_URL': None,                                # URL para JSON Web Key Set (para JWKS)
-    'LEEWAY': 0,                                    # Margen de tiempo para expiración
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'VERIFYING_KEY': None,
+    'AUDIENCE': None,
+    'ISSUER': None,
+    'JWK_URL': None,
+    'LEEWAY': 0,
 
-    'AUTH_HEADER_TYPES': ('Bearer',),               # Tipo de encabezado de autorización (ej. "Bearer eyJ...")
-    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',       # Nombre del encabezado
-    'USER_ID_FIELD': 'id',                          # Campo del modelo de usuario para el ID
-    'USER_ID_CLAIM': 'user_id',                     # Nombre del claim en el token para el ID del usuario
-    'USER_AUTHENTICATION_RULE': 'rest_framework_simplejwt.authentication.default_user_authentication_rule', # Regla de autenticación
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'USER_AUTHENTICATION_RULE': 'rest_framework_simplejwt.authentication.default_user_authentication_rule',
 
-    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',), # Clases de tokens
-    'TOKEN_TYPE_CLAIM': 'token_type',               # Nombre del claim para el tipo de token
-    'TOKEN_USER_CLASS': 'rest_framework_simplejwt.models.TokenUser', # Clase de usuario para tokens
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
+    'TOKEN_USER_CLASS': 'rest_framework_simplejwt.models.TokenUser',
 
-    'JTI_CLAIM': 'jti',                             # Nombre del claim para el ID único del token
+    'JTI_CLAIM': 'jti',
 
-    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=20),        # Duración de tokens deslizantes (si los usas)
-    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),   # Duración de refresco de tokens deslizantes
+    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=20),
+    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
 }
+
+
+# ------------------------------------------------------------------
+# VARIABLES DE ENTORNO PERSONALIZADAS
+# ------------------------------------------------------------------
+GOOGLE_MAPS_API_KEY = env('GOOGLE_MAPS_API_KEY')
+GOOGLE_ANALYTICS_ID = env('GOOGLE_ANALYTICS_ID', default='')

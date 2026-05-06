@@ -41,3 +41,5 @@ class TiendaSerializer(serializers.ModelSerializer):
         # La vista (perform_create) se encargará de asignarlo.
         # 'vendedor_username' es un campo derivado, por lo tanto, solo lectura.
         read_only_fields = ['id', 'slug', 'fecha_creacion', 'vendedor', 'vendedor_username'] 
+
+

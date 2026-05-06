@@ -1,52 +1,53 @@
-# tiendas/views.py
+    # tiendas/views.py
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny
 from rest_framework.serializers import ValidationError
-from rest_framework.decorators import action # Importamos 'action' para métodos personalizados
+from rest_framework.decorators import action 
 
 from .models import Tienda, RadioEnvio
 from .serializers import TiendaSerializer, RadioEnvioSerializer
 
-# No es necesario importar PerfilVendedor aquí, ya que se accede a través de self.request.user.perfil_vendedor.
+from usuarios.permissions import IsSeller 
+from usuarios.models import SellerProfile
 
 class TiendaViewSet(viewsets.ModelViewSet):
     queryset = Tienda.objects.all()
     serializer_class = TiendaSerializer
-    permission_classes = [AllowAny] # Permite ver todas las tiendas para todos por defecto
-
+    
     def get_permissions(self):
-        # Permisos para acciones específicas:
-        # 'create' requiere autenticación (validado en perform_create)
-        # 'update', 'partial_update', 'destroy' requieren autenticación (y deberían ser solo para el dueño/admin)
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            self.permission_classes = [IsAuthenticated]
-        # Para el método 'calcular_envio', lo configuramos con AllowAny directamente en el decorador @action
-        return super().get_permissions()
+            return [IsSeller()] 
+        return [AllowAny()]
 
     def get_queryset(self):
-        # Si la acción es de listado y el usuario es vendedor, filtra por sus tiendas
-        if self.action == 'list' and self.request.user.is_authenticated and hasattr(self.request.user, 'perfil_vendedor'):
-            return Tienda.objects.filter(vendedor=self.request.user.perfil_vendedor)
-        # Para 'retrieve' (ver una tienda por ID) y 'list' para no-autenticados,
-        # o cualquier otra acción no específica, regresamos el queryset completo.
+        if self.request.user.is_authenticated and hasattr(self.request.user, 'seller_profile') and not self.request.user.is_staff:
+            return Tienda.objects.filter(propietario_perfil=self.request.user.seller_profile)
         return Tienda.objects.all()
 
     def perform_create(self, serializer):
-        if self.request.user.is_authenticated and hasattr(self.request.user, 'perfil_vendedor'):
-            serializer.save(vendedor=self.request.user.perfil_vendedor)
-        else:
-            raise ValidationError("Solo vendedores registrados pueden crear tiendas.")
+        try:
+            perfil_vendedor = self.request.user.seller_profile
+        except SellerProfile.DoesNotExist:
+            raise ValidationError("El usuario no tiene un perfil de vendedor asociado.")
+        serializer.save(propietario_perfil=perfil_vendedor)
+
+    def perform_update(self, serializer):
+        tienda_a_actualizar = self.get_object()
+        if not self.request.user.is_staff and tienda_a_actualizar.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para actualizar esta tienda.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para eliminar esta tienda.")
+        super().perform_destroy(instance)
+
 
     @action(detail=True, methods=['get'], permission_classes=[AllowAny])
     def calcular_envio(self, request, pk=None):
-        """
-        Calcula el costo de envío para una tienda específica.
-        Requiere un parámetro 'distancia_km' en la query string.
-        Ej: /api/tiendas/tiendas/{id}/calcular_envio/?distancia_km=X.X
-        """
         try:
-            tienda = self.get_object() # Obtiene la instancia de la tienda basada en el 'pk' de la URL
+            tienda = self.get_object() 
         except Tienda.DoesNotExist:
             return Response({'detail': 'Tienda no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -56,7 +57,6 @@ class TiendaViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Parámetro "distancia_km" es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Se asegura que la distancia sea un número válido y positivo.
             distancia_km_float = float(distancia_km_str)
             if distancia_km_float < 0:
                 raise ValueError
@@ -74,29 +74,28 @@ class TiendaViewSet(viewsets.ModelViewSet):
 class RadioEnvioViewSet(viewsets.ModelViewSet):
     queryset = RadioEnvio.objects.all()
     serializer_class = RadioEnvioSerializer
-    permission_classes = [IsAuthenticated] # Solo usuarios autenticados pueden ver/editar radios
+    permission_classes = [IsSeller] 
 
     def get_queryset(self):
-        if self.request.user.is_authenticated and hasattr(self.request.user, 'perfil_vendedor'):
-            # Filtra los radios de envío por las tiendas que pertenecen al vendedor autenticado
-            return RadioEnvio.objects.filter(tienda__vendedor=self.request.user.perfil_vendedor)
-        return RadioEnvio.objects.none() # No mostrar nada si no está autenticado como vendedor
+        if self.request.user.is_authenticated and hasattr(self.request.user, 'seller_profile'):
+            return RadioEnvio.objects.filter(tienda__propietario_perfil=self.request.user.seller_profile)
+        return RadioEnvio.objects.none()
 
     def perform_create(self, serializer):
-        if not self.request.user.is_authenticated or not hasattr(self.request.user, 'perfil_vendedor'):
-            raise ValidationError("Solo vendedores pueden crear radios de envío.")
-        
-        vendedor_autenticado = self.request.user.perfil_vendedor
-
-        # ¡CORREGIDO! El campo 'tienda' del serializador ya es el objeto Tienda (PrimaryKeyRelatedField).
-        # Si el ID de la tienda no es válido o no se envió, el serializador ya habrá lanzado un ValidationError.
+        vendedor_autenticado = self.request.user.seller_profile
         tienda_obj = serializer.validated_data['tienda'] 
-            
-        # Compara el vendedor de la tienda con el vendedor autenticado
-        if tienda_obj.vendedor != vendedor_autenticado:
-            raise ValidationError("No tienes permiso para añadir radios de envío a esta tienda.")
-                
-        # Guarda la instancia, asignando el objeto Tienda validado
+        if tienda_obj.propietario_perfil != vendedor_autenticado:
+            raise ValidationError({"tienda": "No tienes permiso para añadir radios de envío a esta tienda."})
         serializer.save(tienda=tienda_obj)
-        
-        
+
+    def perform_update(self, serializer):
+        radio_a_actualizar = self.get_object()
+        if not self.request.user.is_staff and radio_a_actualizar.tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para actualizar este radio de envío.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para eliminar este radio de envío.")
+        super().perform_destroy(instance)
+

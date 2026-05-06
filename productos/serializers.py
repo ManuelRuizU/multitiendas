@@ -76,3 +76,5 @@ class ProductoSerializer(serializers.ModelSerializer):
             'subcategoria_nombre',
             'imagen_qr_generado', # Este campo es generado por el modelo, no se envía en la petición
         ]
+
+

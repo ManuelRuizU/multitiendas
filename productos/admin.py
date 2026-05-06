@@ -1,4 +1,5 @@
 # productos/admin.py
+
 from django.contrib import admin
 from django.utils.html import format_html # Importa para renderizar HTML (para la imagen del QR)
 from .models import Categoria, SubCategoria, Producto

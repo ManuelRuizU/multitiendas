@@ -1,7 +1,8 @@
 # productos/views.py
-from rest_framework import viewsets, status
+# modificado 6/8/2025
+
+from rest_framework import viewsets, status, permissions # Importa 'permissions' aquí
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticatedOrReadOnly
 from rest_framework.serializers import ValidationError
 
 # Importamos los modelos de la propia app 'productos'
@@ -12,89 +13,94 @@ from .serializers import CategoriaSerializer, SubCategoriaSerializer, ProductoSe
 
 # Importamos los modelos de otras apps que se necesitan para la lógica de negocio
 from tiendas.models import Tienda
-from usuarios.models import PerfilVendedor
+from usuarios.models import SellerProfile
 
-# Permiso personalizado para verificar si el usuario es un vendedor
-# Esto es una buena práctica para centralizar la lógica de permisos de vendedor
-class IsSeller(IsAuthenticated):
-    """
-    Permite el acceso solo a usuarios autenticados que tienen un perfil de vendedor.
-    """
-    def has_permission(self, request, view):
-        # Primero, verifica si el usuario está autenticado
-        if not super().has_permission(request, view):
-            return False
-        # Luego, verifica si el usuario tiene un perfil de vendedor
-        return hasattr(request.user, 'perfil_vendedor') and request.user.perfil_vendedor.is_complete()
-
-    def has_object_permission(self, request, view, obj):
-        # Permite a los vendedores acceder a sus propias categorías/subcategorías/productos
-        if request.user.is_staff: # Los superusuarios pueden hacer lo que quieran
-            return True
-        # Para Categoría, SubCategoría, Producto, el vendedor debe ser el dueño de la tienda asociada
-        if isinstance(obj, Categoria):
-            return obj.tienda.vendedor.user == request.user
-        if isinstance(obj, SubCategoria):
-            return obj.categoria.tienda.vendedor.user == request.user
-        if isinstance(obj, Producto):
-            return obj.tienda.vendedor.user == request.user
-        return False
+# Importamos IsSeller desde usuarios.permissions
+from usuarios.permissions import IsSeller, IsOwnerOrReadOnly # Asegúrate de importar IsOwnerOrReadOnly si lo usas en otros ViewSets
 
 
 class CategoriaViewSet(viewsets.ModelViewSet):
     queryset = Categoria.objects.all()
     serializer_class = CategoriaSerializer
-    # Permite lectura a cualquiera, escritura solo a autenticados (y la lógica perform_create validará si es vendedor)
-    permission_classes = [IsAuthenticatedOrReadOnly] # <--- ¡CAMBIO AQUÍ!
+
+    def get_permissions(self):
+        """
+        Permite a cualquiera listar y ver categorías.
+        Solo vendedores autenticados pueden crear, actualizar o eliminar categorías.
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [permissions.AllowAny] # Lectura pública
+        else:
+            permission_classes = [permissions.IsAuthenticated, IsSeller] # Escritura solo para vendedores autenticados
+        return [permission() for permission in permission_classes]
 
     def perform_create(self, serializer):
-        # La lógica de validación del vendedor y la tienda es correcta y robusta aquí.
-        # Se ejecuta después de que IsAuthenticatedOrReadOnly permita el acceso de escritura.
-        if not self.request.user.is_authenticated or not hasattr(self.request.user, 'perfil_vendedor'):
-            # Aunque IsAuthenticatedOrReadOnly lo filtraría, esta validación es una buena segunda capa
-            raise ValidationError("Solo vendedores pueden crear categorías.")
-        
-        vendedor_autenticado = self.request.user.perfil_vendedor
+        vendedor_autenticado = self.request.user.seller_profile
+        tienda_obj = serializer.validated_data['tienda']
 
-        tienda_obj = serializer.validated_data['tienda'] 
+        if tienda_obj.propietario_perfil != vendedor_autenticado:
+            raise ValidationError({"tienda": "No tienes permiso para añadir categorías a esta tienda."})
 
-        if tienda_obj.vendedor != vendedor_autenticado:
-            raise ValidationError("No tienes permiso para añadir categorías a esta tienda.")
-        
         serializer.save(tienda=tienda_obj)
+
+    def perform_update(self, serializer):
+        categoria_a_actualizar = self.get_object()
+        if not self.request.user.is_staff and categoria_a_actualizar.tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para actualizar esta categoría.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para eliminar esta categoría.")
+        super().perform_destroy(instance)
 
     def get_queryset(self):
         queryset = Categoria.objects.all()
         tienda_id = self.request.query_params.get('tienda_id', None)
         if tienda_id is not None:
             queryset = queryset.filter(tienda__id=tienda_id)
-        
-        # Opcional: Si el usuario es un vendedor, solo mostrar sus propias categorías
-        if self.request.user.is_authenticated and hasattr(self.request.user, 'perfil_vendedor') and not self.request.user.is_staff:
-            queryset = queryset.filter(tienda__vendedor=self.request.user.perfil_vendedor)
-            
+
+        # Si el usuario es un vendedor, solo ve sus propias categorías
+        if self.request.user.is_authenticated and hasattr(self.request.user, 'seller_profile') and not self.request.user.is_staff:
+            queryset = queryset.filter(tienda__propietario_perfil=self.request.user.seller_profile)
+
         return queryset
 
 
 class SubCategoriaViewSet(viewsets.ModelViewSet):
     queryset = SubCategoria.objects.all()
     serializer_class = SubCategoriaSerializer
-    # Permite lectura a cualquiera, escritura solo a autenticados (y la lógica perform_create validará si es vendedor)
-    permission_classes = [IsAuthenticatedOrReadOnly] # <--- ¡CAMBIO AQUÍ!
+
+    def get_permissions(self):
+        """
+        Permite a cualquiera listar y ver subcategorías.
+        Solo vendedores autenticados pueden crear, actualizar o eliminar subcategorías.
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [permissions.AllowAny] # Lectura pública
+        else:
+            permission_classes = [permissions.IsAuthenticated, IsSeller] # Escritura solo para vendedores autenticados
+        return [permission() for permission in permission_classes]
 
     def perform_create(self, serializer):
-        # La lógica de validación del vendedor y la categoría es correcta y robusta aquí.
-        if not self.request.user.is_authenticated or not hasattr(self.request.user, 'perfil_vendedor'):
-            raise ValidationError("Solo vendedores pueden crear subcategorías.")
-        
-        vendedor_autenticado = self.request.user.perfil_vendedor
-
+        vendedor_autenticado = self.request.user.seller_profile
         categoria_obj = serializer.validated_data['categoria']
 
-        if categoria_obj.tienda.vendedor != vendedor_autenticado:
-            raise ValidationError("No tienes permiso para añadir subcategorías a esta categoría/tienda.")
-        
+        if categoria_obj.tienda.propietario_perfil != vendedor_autenticado:
+            raise ValidationError({"categoria": "No tienes permiso para añadir subcategorías a esta categoría/tienda."})
+
         serializer.save(categoria=categoria_obj)
+
+    def perform_update(self, serializer):
+        subcategoria_a_actualizar = self.get_object()
+        if not self.request.user.is_staff and subcategoria_a_actualizar.categoria.tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para actualizar esta subcategoría.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.categoria.tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para eliminar esta subcategoría.")
+        super().perform_destroy(instance)
 
     def get_queryset(self):
         queryset = SubCategoria.objects.all()
@@ -102,38 +108,51 @@ class SubCategoriaViewSet(viewsets.ModelViewSet):
         if categoria_id is not None:
             queryset = queryset.filter(categoria__id=categoria_id)
 
-        # Opcional: Si el usuario es un vendedor, solo mostrar sus propias subcategorías
-        if self.request.user.is_authenticated and hasattr(self.request.user, 'perfil_vendedor') and not self.request.user.is_staff:
-            queryset = queryset.filter(categoria__tienda__vendedor=self.request.user.perfil_vendedor)
-            
+        # Si el usuario es un vendedor, solo ve sus propias subcategorías
+        if self.request.user.is_authenticated and hasattr(self.request.user, 'seller_profile') and not self.request.user.is_staff:
+            queryset = queryset.filter(categoria__tienda__propietario_perfil=self.request.user.seller_profile)
+
         return queryset
 
 
 class ProductoViewSet(viewsets.ModelViewSet):
     queryset = Producto.objects.all()
     serializer_class = ProductoSerializer
-    # Permite lectura a cualquiera, escritura solo a autenticados (y la lógica perform_create validará si es vendedor)
-    permission_classes = [IsAuthenticatedOrReadOnly] # <--- ¡CAMBIO AQUÍ!
+
+    def get_permissions(self):
+        """
+        Permite a cualquiera listar y ver productos.
+        Solo vendedores autenticados pueden crear, actualizar o eliminar productos.
+        """
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [permissions.AllowAny] # Lectura pública
+        else:
+            permission_classes = [permissions.IsAuthenticated, IsSeller] # Escritura solo para vendedores autenticados
+        return [permission() for permission in permission_classes]
 
     def perform_create(self, serializer):
-        # La lógica de validación del vendedor y la tienda/subcategoría es correcta y robusta aquí.
-        if not self.request.user.is_authenticated or not hasattr(self.request.user, 'perfil_vendedor'):
-            raise ValidationError("Solo vendedores pueden crear productos.")
-        
-        vendedor_autenticado = self.request.user.perfil_vendedor
-
+        vendedor_autenticado = self.request.user.seller_profile
         tienda_obj = serializer.validated_data['tienda']
-        subcategoria_obj = serializer.validated_data.get('subcategoria') 
+        subcategoria_obj = serializer.validated_data.get('subcategoria')
 
-        # Validar que la tienda seleccionada pertenece al vendedor autenticado
-        if tienda_obj.vendedor != vendedor_autenticado:
+        if tienda_obj.propietario_perfil != vendedor_autenticado:
             raise ValidationError({"tienda": "No tienes permiso para añadir productos a esta tienda."})
-        
-        # Validar que la subcategoría (si se proporciona) pertenece a la tienda seleccionada
+
         if subcategoria_obj and subcategoria_obj.categoria.tienda != tienda_obj:
             raise ValidationError({"subcategoria": "La subcategoría no pertenece a la tienda seleccionada."})
-            
+
         serializer.save(tienda=tienda_obj, subcategoria=subcategoria_obj)
+
+    def perform_update(self, serializer):
+        producto_a_actualizar = self.get_object()
+        if not self.request.user.is_staff and producto_a_actualizar.tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para actualizar este producto.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para eliminar este producto.")
+        super().perform_destroy(instance)
 
     def get_queryset(self):
         queryset = Producto.objects.all()
@@ -145,12 +164,11 @@ class ProductoViewSet(viewsets.ModelViewSet):
         if subcategoria_id is not None:
             queryset = queryset.filter(subcategoria__id=subcategoria_id)
 
-        # Opcional: Si el usuario es un vendedor, solo mostrar sus propios productos
-        if self.request.user.is_authenticated and hasattr(self.request.user, 'perfil_vendedor') and not self.request.user.is_staff:
-            queryset = queryset.filter(tienda__vendedor=self.request.user.perfil_vendedor)
-            
+        # Si el usuario es un vendedor (y no un staff), solo ve sus propios productos
+        if self.request.user.is_authenticated and hasattr(self.request.user, 'seller_profile') and not self.request.user.is_staff:
+            queryset = queryset.filter(tienda__propietario_perfil=self.request.user.seller_profile)
+
         return queryset
 
 
-    
-    
+

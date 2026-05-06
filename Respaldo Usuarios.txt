@@ -1,0 +1,909 @@
+# 29/07/2025
+# =======================================================================
+# usuarios/models.py
+from django.db import models
+from django.contrib.auth.models import AbstractUser
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.conf import settings 
+import uuid 
+from django.core.exceptions import ValidationError 
+from django.db.models import Q 
+
+# ------------------------------------------------------------------
+# 1. USUARIO PERSONALIZADO (CustomUser)
+# ------------------------------------------------------------------
+
+class UserType(models.TextChoices):
+    """
+    Define los tipos de usuario disponibles en la plataforma.
+    Esto permite diferenciar claramente entre compradores y vendedores.
+    """
+    BUYER = 'BUYER', 'Comprador'
+    SELLER = 'SELLER', 'Vendedor/Comerciante'
+
+class CustomUser(AbstractUser):
+    """
+    Modelo de usuario personalizado que extiende AbstractUser.
+    Incluye un campo 'user_type' para categorizar al usuario.
+    """
+    user_type = models.CharField(
+        max_length=10,
+        choices=UserType.choices,
+        default=UserType.BUYER, 
+        verbose_name="Tipo de Usuario",
+        help_text="Define si el usuario es un comprador o un vendedor."
+    )
+
+    groups = models.ManyToManyField(
+        'auth.Group',
+        verbose_name='groups',
+        blank=True,
+        help_text='Los grupos a los que pertenece este usuario. Un usuario obtendrá todos los permisos concedidos a cada uno de sus grupos.',
+        related_name="custom_user_groups", 
+        related_query_name="custom_user",
+    )
+    user_permissions = models.ManyToManyField(
+        'auth.Permission',
+        verbose_name='user permissions',
+        blank=True,
+        help_text='Permisos específicos para este usuario.',
+        related_name="custom_user_permissions", 
+        related_query_name="custom_user",
+    )
+
+    class Meta:
+        verbose_name = "Usuario Personalizado"
+        verbose_name_plural = "Usuarios Personalizados"
+
+    def __str__(self):
+        return f"{self.username} ({self.get_user_type_display()})"
+
+# ------------------------------------------------------------------
+# 2. PERFILES DE USUARIO ESPECÍFICOS (BuyerProfile y SellerProfile)
+# ------------------------------------------------------------------
+
+class BuyerProfile(models.Model):
+    """
+    Perfil específico para usuarios compradores.
+    Este perfil se crea automáticamente para usuarios con user_type='BUYER'.
+    Contendrá información adicional relevante solo para compradores.
+    """
+    user = models.OneToOneField(
+        CustomUser, 
+        on_delete=models.CASCADE, 
+        primary_key=True, 
+        related_name='buyer_profile',
+        verbose_name="Usuario Asociado"
+    )
+    
+    class Meta:
+        verbose_name = "Perfil de Comprador"
+        verbose_name_plural = "Perfiles de Compradores"
+
+    def __str__(self):
+        return f"Perfil de Comprador: {self.user.username}"
+
+
+class SellerProfile(models.Model):
+    """
+    Perfil específico para usuarios vendedores/comerciantes.
+    Este perfil se crea automáticamente para usuarios con user_type='SELLER'.
+    Contiene la información fiscal y de contacto del vendedor.
+    """
+    user = models.OneToOneField(
+        CustomUser, 
+        on_delete=models.CASCADE, 
+        primary_key=True, 
+        related_name='seller_profile',
+        verbose_name="Usuario Asociado"
+    )
+    
+    # --- Campos obligatorios del perfil de vendedor ---
+    telefono = models.CharField(max_length=20, blank=True, null=True, verbose_name="Teléfono de Contacto") 
+    rut = models.CharField("RUT / DNI", max_length=12, unique=True, blank=False, null=False, 
+                          help_text="Rol Único Tributario de la empresa o persona natural.") 
+    razon_social = models.CharField(max_length=150, blank=False, null=False, 
+                                    verbose_name="Razón Social", 
+                                    help_text="Nombre legal de la empresa o persona natural.")
+    giro = models.CharField("Giro o actividad", max_length=150, blank=False, null=False, 
+                            help_text="Actividad económica principal del vendedor.")
+    direccion_fiscal = models.CharField(max_length=255, blank=False, null=False, 
+                                        verbose_name="Dirección Fiscal", 
+                                        help_text="Dirección registrada para fines tributarios.")
+
+    fecha_registro = models.DateTimeField(auto_now_add=True)
+
+    # ---------- utilidades ----------
+    OBLIGATORY_FIELDS = ["rut", "razon_social", "giro", "direccion_fiscal"] 
+
+    def is_complete(self) -> bool:
+        """
+        Retorna True si todos los campos obligatorios del perfil de vendedor
+        tienen un valor no vacío/no nulo.
+        """
+        return all(getattr(self, f) for f in self.OBLIGATORY_FIELDS if getattr(self, f) is not None and getattr(self, f) != '')
+
+    def clean(self):
+        """
+        Realiza validaciones adicionales para los campos del perfil de vendedor.
+        """
+        if not self.rut:
+            raise ValidationError({'rut': "El RUT / DNI es obligatorio."})
+        if not self.razon_social:
+            raise ValidationError({'razon_social': "La razón social es obligatoria."})
+        if not self.giro:
+            raise ValidationError({'giro': "El giro o actividad es obligatorio."})
+        if not self.direccion_fiscal:
+            raise ValidationError({'direccion_fiscal': "La dirección fiscal es obligatoria."})
+        
+    class Meta:
+        verbose_name = "Perfil de Vendedor"
+        verbose_name_plural = "Perfiles de Vendedores"
+
+    def __str__(self):
+        return f"Vendedor: {self.user.username} ({self.razon_social or 'N/A'})"
+
+# ------------------------------------------------------------------
+# 3. SEÑALES PARA CREAR Y GUARDAR PERFILES AUTOMÁTICAMENTE
+# ------------------------------------------------------------------
+
+@receiver(post_save, sender=CustomUser)
+def create_user_profile(sender, instance, created, **kwargs):
+    """
+    Crea un perfil de comprador o vendedor automáticamente cuando se crea un CustomUser,
+    basándose en el 'user_type' asignado.
+    """
+    if created:
+        if instance.user_type == UserType.BUYER:
+            BuyerProfile.objects.create(user=instance)
+        elif instance.user_type == UserType.SELLER:
+            SellerProfile.objects.create(user=instance)
+
+@receiver(post_save, sender=CustomUser)
+def save_user_profile(sender, instance, **kwargs):
+    """
+    Guarda el perfil de comprador o vendedor asociado al CustomUser
+    cuando el CustomUser se guarda.
+    """
+    try:
+        if instance.user_type == UserType.BUYER and hasattr(instance, 'buyer_profile'):
+            instance.buyer_profile.save()
+        elif instance.user_type == UserType.SELLER and hasattr(instance, 'seller_profile'):
+            instance.seller_profile.save()
+    except (BuyerProfile.DoesNotExist, SellerProfile.DoesNotExist):
+        pass
+
+# ------------------------------------------------------------------
+# 4. MODELOS DE CLIENTE Y DIRECCIÓN (Adaptados para CustomUser)
+# ------------------------------------------------------------------
+
+class Cliente(models.Model):
+    """
+    Representa un cliente, que puede ser un usuario registrado (CustomUser) o un invitado.
+    Este modelo es clave para manejar el flujo de pedidos y direcciones.
+    """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE,
+        related_name='cliente_data', 
+        null=True,
+        blank=True,
+        verbose_name="Usuario Registrado"
+    )
+    
+    first_name = models.CharField("Nombre", max_length=150, blank=True, null=True)
+    last_name = models.CharField("Apellido", max_length=150, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True, unique=False) 
+    telefono = models.CharField(max_length=30, blank=True, null=True)
+
+    is_guest = models.BooleanField(default=False, help_text="Indica si este cliente es un invitado (no tiene cuenta de usuario).") 
+    guest_uuid = models.UUIDField(default=uuid.uuid4, null=True, blank=True, unique=True, 
+                                  help_text="Identificador único para clientes invitados.") 
+
+    class Meta:
+        verbose_name = "Cliente"
+        verbose_name_plural = "Clientes"
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    Q(user__isnull=False, guest_uuid__isnull=True) |
+                    Q(user__isnull=True, guest_uuid__isnull=False)
+                ),
+                name='user_or_guest_uuid_not_both'
+            ),
+            models.UniqueConstraint(
+                fields=['user'], 
+                condition=Q(user__isnull=False), 
+                name='unique_cliente_for_user'
+            )
+        ]
+
+    def clean(self):
+        self.is_guest = self.user is None 
+
+        if self.email == '':
+            self.email = None
+        if self.first_name == '':
+            self.first_name = None
+        if self.last_name == '':
+            self.last_name = None
+        if self.telefono == '':
+            self.telefono = None
+
+    def save(self, *args, **kwargs):
+        self.full_clean() 
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        if self.user:
+            return f"Cliente Registrado: {self.user.username} ({self.user.email or 'N/A'})"
+        elif self.guest_uuid:
+            full_name = f"{self.first_name or ''} {self.last_name or ''}".strip()
+            return f"Cliente Invitado: {full_name or self.email or str(self.guest_uuid)[:8]}..."
+        return f"Cliente ID: {self.id}"
+
+
+class Direccion(models.Model):
+    """
+    Modelo para almacenar las direcciones de los clientes (registrados o invitados).
+    """
+    TIPO_PROPIEDAD_CHOICES = [
+        ('Casa', 'Casa'),
+        ('Edificio', 'Edificio'),
+        ('Condominio', 'Condominio'),
+    ]
+
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="direcciones", verbose_name="Cliente Asociado")
+    etiqueta = models.CharField(max_length=50, blank=True, null=True, help_text="Ej: Casa, Oficina, Principal")
+    
+    calle = models.CharField(max_length=255, help_text="Nombre de la calle o avenida.")
+    numero = models.CharField(max_length=20, help_text="Número de la dirección.")
+    
+    tipo_propiedad = models.CharField(
+        max_length=20, 
+        choices=TIPO_PROPIEDAD_CHOICES, 
+        default='Casa', 
+        help_text="Selecciona el tipo de propiedad (Casa, Edificio, Condominio)."
+    )
+
+    departamento = models.CharField(max_length=20, blank=True, null=True, help_text="Número de departamento, oficina, etc.")
+    block = models.CharField(max_length=50, blank=True, null=True, help_text="Número o nombre del bloque/torre dentro del complejo (ej: Bloque A, Torre 3).")
+    nombre_condominio = models.CharField(max_length=100, blank=True, null=True, help_text="Nombre del condominio o complejo.")
+
+    comuna = models.CharField(max_length=100, help_text="Comuna o distrito.")
+    ciudad = models.CharField(max_length=100, help_text="Ciudad.")
+    region = models.CharField(max_length=100, help_text="Región o estado.")
+    codigo_postal = models.CharField(max_length=10, blank=True, null=True, help_text="Código postal.")
+    
+    latitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Latitud obtenida de la validación.")
+    longitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, help_text="Longitud obtenida de la validación.")
+    validada = models.BooleanField(default=False, help_text="Indica si la dirección ha sido validada por una API de mapas.")
+
+    tipo_direccion = models.CharField(max_length=50, blank=True, null=True, help_text="Tipo de dirección (ej. 'Envío', 'Facturación').") 
+    principal = models.BooleanField(default=False, help_text="Define si es la dirección principal para este cliente.")
+
+    class Meta:
+        ordering = ["-id"]
+        verbose_name_plural = "Direcciones"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['cliente'],
+                condition=Q(principal=True),
+                name='unique_principal_address_per_client'
+            )
+        ]
+
+    def __str__(self):
+        parts = [f"{self.calle} {self.numero}"]
+        if self.tipo_propiedad in ['Edificio', 'Condominio']:
+            if self.nombre_condominio:
+                parts.append(f"Condominio {self.nombre_condominio}")
+            if self.block:
+                parts.append(f"Block {self.block}") 
+            if self.departamento:
+                parts.append(f"Depto. {self.departamento}")
+        
+        parts.extend([self.comuna, self.ciudad, self.region])
+        full_address = ", ".join(filter(None, parts))
+
+        cliente_info = ""
+        if self.cliente.user:
+            cliente_info = self.cliente.user.username
+        elif self.cliente.first_name or self.cliente.last_name:
+            cliente_info = f"{self.cliente.first_name or ''} {self.cliente.last_name or ''}".strip()
+        elif self.cliente.email:
+            cliente_info = self.cliente.email
+            
+        return f"{self.etiqueta or 'Dirección'}: {full_address} – Cliente: {cliente_info}"
+    
+    def save(self, *args, **kwargs):
+        if self.principal:
+            Direccion.objects.filter(cliente=self.cliente, principal=True).exclude(pk=self.pk).update(principal=False)
+        super().save(*args, **kwargs)
+
+#========================================================================================================================================
+31/07/2025 2:24
+#========================================================================================================================================
+# usuarios/serializers.py
+
+from rest_framework import serializers
+from django.contrib.auth import get_user_model 
+from django.db import transaction 
+from django.contrib.auth.password_validation import validate_password
+
+from .models import BuyerProfile, SellerProfile, Cliente, Direccion, CustomUser, UserType 
+
+User = get_user_model() 
+
+# ------------------------------------------------------------------
+# 1. SERIALIZADOR DE USUARIO BÁSICO (Para CustomUser)
+# ------------------------------------------------------------------
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'user_type']
+        read_only_fields = ['id', 'user_type'] 
+
+# ------------------------------------------------------------------
+# 2. SERIALIZADOR DE REGISTRO DE COMPRADOR (UserRegistrationSerializer)
+#    ¡AHORA INCLUYE EL ID DEL CLIENTE EN LA RESPUESTA!
+# ------------------------------------------------------------------
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'}, validators=[validate_password])
+    password2 = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+
+    class Meta:
+        model = User
+        fields = ('username', 'email', 'password', 'password2', 'first_name', 'last_name')
+        extra_kwargs = {
+            'first_name': {'required': True},
+            'last_name': {'required': True},
+        }
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password2']:
+            raise serializers.ValidationError({"password": "Las contraseñas no coinciden."})
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('password2')
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            email=validated_data['email'],
+            password=validated_data['password'],
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name'],
+            user_type=UserType.BUYER 
+        )
+        # Crea el objeto Cliente asociado, asegurando que guest_uuid sea None
+        Cliente.objects.create(
+            user=user,
+            is_guest=False,
+            guest_uuid=None,
+            first_name=validated_data.get('first_name'),
+            last_name=validated_data.get('last_name'),
+            email=validated_data.get('email')
+        )
+        return user
+
+    # Nuevo método para incluir el ID del Cliente en la respuesta
+    def to_representation(self, instance):
+        # Obtiene la representación estándar del usuario
+        representation = super().to_representation(instance)
+        
+        # Intenta obtener el cliente asociado y añadir su ID
+        try:
+            # Asumiendo que el CustomUser tiene un related_name 'cliente' o que Cliente tiene un OneToOneField 'user'
+            # y que el acceso inverso es directo (instance.cliente)
+            cliente = Cliente.objects.get(user=instance)
+            representation['cliente_id'] = cliente.id
+        except Cliente.DoesNotExist:
+            # Esto no debería ocurrir si la creación del cliente es exitosa
+            representation['cliente_id'] = None 
+            print(f"Advertencia: No se encontró un objeto Cliente para el usuario {instance.username}")
+        
+        return representation
+
+# ------------------------------------------------------------------
+# 3. SERIALIZADOR DE REGISTRO DE VENDEDOR (SellerRegistrationSerializer)
+# ------------------------------------------------------------------
+class SellerRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'}, validators=[validate_password])
+    password2 = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+    
+    telefono_vendedor = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    rut = serializers.CharField(max_length=12, required=True)
+    razon_social = serializers.CharField(max_length=150, required=True)
+    giro = serializers.CharField(max_length=150, required=True)
+    direccion_fiscal = serializers.CharField(max_length=255, required=True)
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            'username', 'email', 'password', 'password2', 'first_name', 'last_name',
+            'telefono_vendedor', 'rut', 'razon_social', 'giro', 'direccion_fiscal'
+        ]
+        extra_kwargs = {'password': {'write_only': True}} 
+
+    def validate(self, data):
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError({"password": "Las contraseñas no coinciden."})
+        
+        # Validaciones manuales para los campos del perfil
+        required_seller_fields = ['rut', 'razon_social', 'giro', 'direccion_fiscal']
+        for field_name in required_seller_fields:
+            if not data.get(field_name): 
+                raise serializers.ValidationError({field_name: f"Este campo es obligatorio para el registro de vendedor."})
+        
+        return data
+
+    def create(self, validated_data):
+        validated_data.pop('password2')
+        
+        seller_profile_data = {
+            'telefono': validated_data.pop('telefono_vendedor', None), 
+            'rut': validated_data.pop('rut', None),
+            'razon_social': validated_data.pop('razon_social', None),
+            'giro': validated_data.pop('giro', None),
+            'direccion_fiscal': validated_data.pop('direccion_fiscal', None),
+        }
+
+        with transaction.atomic():
+            # ¡¡¡CORRECCIÓN CLAVE AQUÍ!!! Asegura que el usuario se cree como activo
+            user = CustomUser.objects.create_user(
+                username=validated_data['username'],
+                email=validated_data['email'],
+                password=validated_data['password'],
+                first_name=validated_data['first_name'],
+                last_name=validated_data['last_name'],
+                user_type=UserType.SELLER,
+                is_active=True # <--- ¡Añadido para asegurar que la cuenta esté activa!
+            )
+            
+            Cliente.objects.create(
+                user=user, 
+                is_guest=False,
+                guest_uuid=None,
+                first_name=validated_data.get('first_name'),
+                last_name=validated_data.get('last_name'),
+                email=validated_data.get('email'),
+                telefono=seller_profile_data.get('telefono') 
+            )
+            
+            # Esto maneja la creación o actualización del SellerProfile
+            # La señal post_save en CustomUser ya lo crea, así que solo lo actualizamos
+            if hasattr(user, 'seller_profile'):
+                seller_profile = user.seller_profile
+                for attr, value in seller_profile_data.items():
+                    if value is not None: 
+                        setattr(seller_profile, attr, value)
+                seller_profile.save()
+            else:
+                # Esto no debería ejecutarse si la señal post_save funciona correctamente
+                SellerProfile.objects.create(user=user, **seller_profile_data)
+        
+        return user
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        try:
+            seller_profile = instance.seller_profile
+            representation['rut'] = seller_profile.rut
+            representation['razon_social'] = seller_profile.razon_social
+            representation['giro'] = seller_profile.giro
+            representation['direccion_fiscal'] = seller_profile.direccion_fiscal
+            representation['telefono_vendedor'] = seller_profile.telefono
+        except SellerProfile.DoesNotExist:
+            pass
+        return representation
+
+# ------------------------------------------------------------------
+# 4. SERIALIZADOR DE PERFIL DE COMPRADOR (BuyerProfileSerializer)
+# ------------------------------------------------------------------
+class BuyerProfileSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True) 
+
+    class Meta:
+        model = BuyerProfile
+        fields = '__all__' 
+        read_only_fields = ['user']
+
+# ------------------------------------------------------------------
+# 5. SERIALIZADOR DE PERFIL DE VENDEDOR (SellerProfileSerializer)
+# ------------------------------------------------------------------
+class SellerProfileSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True) 
+
+    class Meta:
+        model = SellerProfile
+        fields = ['id', 'user', 'telefono', 'rut', 'razon_social', 'giro', 'direccion_fiscal', 'fecha_registro']
+        read_only_fields = ['id', 'user', 'fecha_registro'] 
+
+# ------------------------------------------------------------------
+# 6. SERIALIZADOR DE CLIENTE (Maneja registrados e invitados)
+# ------------------------------------------------------------------
+class ClienteSerializer(serializers.ModelSerializer):
+    user_username = serializers.ReadOnlyField(source='user.username', allow_null=True)
+    user_email = serializers.ReadOnlyField(source='user.email', allow_null=True)
+
+    class Meta:
+        model = Cliente
+        fields = ['id', 'user_username', 'user_email', 'first_name', 'last_name', 'email', 'telefono', 'is_guest', 'guest_uuid']
+        read_only_fields = ['id', 'is_guest', 'guest_uuid', 'user_username', 'user_email'] 
+
+# ------------------------------------------------------------------
+# 7. SERIALIZADOR DE DIRECCIÓN
+# ------------------------------------------------------------------
+class DireccionSerializer(serializers.ModelSerializer):
+    cliente_info = ClienteSerializer(source='cliente', read_only=True)
+    cliente = serializers.PrimaryKeyRelatedField(
+        queryset=Cliente.objects.all(), write_only=True
+    ) 
+
+    class Meta:
+        model = Direccion
+        fields = [
+            'id', 'cliente', 'cliente_info', 'etiqueta', 'calle', 'numero',
+            'tipo_propiedad', 'departamento', 'block', 'nombre_condominio',
+            'comuna', 'ciudad', 'region', 'codigo_postal', 'latitud', 'longitud',
+            'validada', 'tipo_direccion', 'principal'
+        ]
+        read_only_fields = ['id', 'latitud', 'longitud', 'validada', 'cliente_info'] 
+
+# ------------------------------------------------------------------
+# 8. SERIALIZADOR PARA CAMBIO DE CONTRASEÑA
+# ------------------------------------------------------------------
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, validators=[validate_password])
+    new_password2 = serializers.CharField(required=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password2']:
+            raise serializers.ValidationError({"new_password": "Las nuevas contraseñas no coinciden."})
+        return attrs
+
+#========================================================================================================================================
+#========================================================================================================================================
+    
+# usuarios/urls.py REGISTRO COMPLETO
+# usuarios/urls.py 4
+# usuarios/urls.py REGISTRO COMPLETO
+# usuarios/urls.py 4
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+
+# Importaciones individuales
+from .views import (
+    MyTokenObtainPairView,
+    UserViewSet,
+    BuyerProfileViewSet,
+    SellerProfileViewSet,
+    ClienteViewSet,
+    DireccionViewSet,
+    SellerRegistrationView,
+    ChangePasswordView
+)
+
+# Crea un enrutador para tus ViewSets
+router = DefaultRouter()
+router.register(r'users', UserViewSet) 
+router.register(r'buyer-profiles', BuyerProfileViewSet, basename='buyer-profile')
+router.register(r'seller-profiles', SellerProfileViewSet, basename='seller-profile')
+router.register(r'clientes', ClienteViewSet, basename='cliente') 
+router.register(r'direcciones', DireccionViewSet, basename='direccion') 
+
+urlpatterns = [
+    path('', include(router.urls)),
+    path('token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('register-seller/', SellerRegistrationView.as_view(), name='register-seller'),
+    path('change-password/', ChangePasswordView.as_view(), name='change-password'),
+]
+
+# usuarios/views.py REGISTRO COMPLETO
+# usuarios/views.py 4
+from rest_framework import generics, status, viewsets
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.decorators import action
+from rest_framework.serializers import ValidationError
+from django.db import transaction
+from django.contrib.auth import get_user_model 
+from rest_framework import serializers
+from django.contrib.auth.password_validation import validate_password
+from rest_framework.views import APIView
+import uuid 
+
+from .models import BuyerProfile, SellerProfile, Cliente, Direccion, UserType
+from .serializers import (
+    UserSerializer, 
+    UserRegistrationSerializer, 
+    SellerRegistrationSerializer, 
+    BuyerProfileSerializer,
+    SellerProfileSerializer,
+    ClienteSerializer, 
+    DireccionSerializer,
+    ChangePasswordSerializer
+)
+
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+CustomUser = get_user_model() 
+
+# ------------------------------------------------------------------
+# 1. VISTA PERSONALIZADA PARA OBTENER TOKEN JWT (MyTokenObtainPairView)
+# ------------------------------------------------------------------
+class MyTokenObtainPairView(TokenObtainPairView):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == status.HTTP_200_OK:
+            user = CustomUser.objects.get(username=request.data['username']) 
+            user_data = UserSerializer(user).data 
+            response.data['user'] = user_data
+        return response
+
+# ------------------------------------------------------------------
+# 2. USER VIEWSET (Para registro general de compradores y gestión de CustomUser)
+# ------------------------------------------------------------------
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = CustomUser.objects.all()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return UserRegistrationSerializer 
+        return UserSerializer 
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [AllowAny()] 
+        return [IsAuthenticated()] 
+
+    def perform_create(self, serializer):
+        user = serializer.save() 
+
+    def perform_update(self, serializer):
+        if not self.request.user.is_staff and serializer.instance != self.request.user:
+            raise ValidationError("No tienes permiso para actualizar este usuario.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance != self.request.user:
+            raise ValidationError("No tienes permiso para eliminar este usuario.")
+        super().perform_destroy(instance)
+
+# ------------------------------------------------------------------
+# 3. VISTA DE REGISTRO DE VENDEDOR (SellerRegistrationView)
+# ------------------------------------------------------------------
+class SellerRegistrationView(generics.CreateAPIView):
+    serializer_class = SellerRegistrationSerializer
+    permission_classes = [AllowAny] 
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        serializer.save() 
+        
+        return Response(
+            {"message": "Vendedor registrado exitosamente con perfil completo."},
+            status=status.HTTP_201_CREATED
+        )
+
+# ------------------------------------------------------------------
+# 4. BUYER PROFILE VIEWSET (CRUD para perfiles de comprador)
+# ------------------------------------------------------------------
+class BuyerProfileViewSet(viewsets.ModelViewSet):
+    queryset = BuyerProfile.objects.all()
+    serializer_class = BuyerProfileSerializer
+    permission_classes = [IsAuthenticated] 
+
+    def get_queryset(self):
+        if self.request.user.is_staff: 
+            return BuyerProfile.objects.all()
+        if hasattr(self.request.user, 'buyer_profile'):
+            return BuyerProfile.objects.filter(user=self.request.user)
+        return BuyerProfile.objects.none()
+
+    def perform_create(self, serializer):
+        if hasattr(self.request.user, 'buyer_profile'):
+            raise ValidationError("Este usuario ya tiene un perfil de comprador.")
+        serializer.save(user=self.request.user)
+
+    def perform_update(self, serializer):
+        if not self.request.user.is_staff and serializer.instance.user != self.request.user:
+            raise ValidationError("No tienes permiso para actualizar este perfil de comprador.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.user != self.request.user:
+            raise ValidationError("No tienes permiso para eliminar este perfil de comprador.")
+        super().perform_destroy(instance)
+
+    @action(detail=False, methods=['get'])
+    def mi_perfil(self, request):
+        try:
+            perfil = request.user.buyer_profile
+            serializer = self.get_serializer(perfil)
+            return Response(serializer.data)
+        except BuyerProfile.DoesNotExist:
+            return Response({"detail": "Perfil de comprador no encontrado para este usuario."}, status=status.HTTP_404_NOT_FOUND)
+
+
+# ------------------------------------------------------------------
+# 5. SELLER PROFILE VIEWSET (CRUD para perfiles de vendedor)
+# ------------------------------------------------------------------
+class SellerProfileViewSet(viewsets.ModelViewSet):
+    queryset = SellerProfile.objects.all()
+    serializer_class = SellerProfileSerializer
+    permission_classes = [IsAuthenticated] 
+
+    def get_queryset(self):
+        if self.request.user.is_staff: 
+            return SellerProfile.objects.all()
+        if hasattr(self.request.user, 'seller_profile'):
+            return SellerProfile.objects.filter(user=self.request.user)
+        return SellerProfile.objects.none()
+
+    def perform_create(self, serializer):
+        if hasattr(self.request.user, 'seller_profile'):
+            raise ValidationError("Este usuario ya tiene un perfil de vendedor.")
+        serializer.save(user=self.request.user) 
+
+    def perform_update(self, serializer):
+        if not self.request.user.is_staff and serializer.instance.user != self.request.user:
+            raise ValidationError("No tienes permiso para actualizar este perfil de vendedor.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.user != self.request.user:
+            raise ValidationError("No tienes permiso para eliminar este perfil de vendedor.")
+        super().perform_destroy(instance)
+
+    @action(detail=False, methods=['get', 'patch'])
+    def mi_perfil(self, request):
+        try:
+            perfil = request.user.seller_profile
+            serializer = self.get_serializer(perfil)
+            return Response(serializer.data)
+        except SellerProfile.DoesNotExist:
+            return Response({"detail": "Perfil de vendedor no encontrado para este usuario."}, status=status.HTTP_404_NOT_FOUND)
+
+# ------------------------------------------------------------------
+# 6. CLIENTE VIEWSET (CRUD para el modelo Cliente - registrados e invitados)
+# ------------------------------------------------------------------
+class ClienteViewSet(viewsets.ModelViewSet):
+    queryset = Cliente.objects.all()
+    serializer_class = ClienteSerializer
+    permission_classes = [AllowAny] 
+
+    def get_queryset(self):
+        if self.request.user.is_staff: 
+            return Cliente.objects.all()
+        if self.request.user.is_authenticated and hasattr(self.request.user, 'cliente_data'):
+            return Cliente.objects.filter(user=self.request.user)
+        return Cliente.objects.none()
+
+    def perform_create(self, serializer):
+        if self.request.user.is_authenticated:
+            if hasattr(self.request.user, 'cliente_data'):
+                raise ValidationError("Este usuario ya tiene un perfil de cliente asociado.")
+            serializer.save(user=self.request.user, is_guest=False, guest_uuid=None)
+        else:
+            if not serializer.validated_data.get('guest_uuid') and not serializer.validated_data.get('email'):
+                raise ValidationError("Para clientes invitados, se requiere un 'guest_uuid' o 'email'.")
+            serializer.save(is_guest=True, user=None)
+
+    def perform_update(self, serializer):
+        if not self.request.user.is_staff:
+            if serializer.instance.user != self.request.user:
+                raise ValidationError("No tienes permiso para actualizar este perfil de cliente.")
+            if serializer.instance.is_guest and 'guest_uuid' in serializer.validated_data and serializer.validated_data['guest_uuid'] != serializer.instance.guest_uuid:
+                raise ValidationError("No puedes cambiar el guest_uuid de un cliente invitado existente.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.user != self.request.user:
+            raise ValidationError("No tienes permiso para eliminar este perfil de cliente.")
+        super().perform_destroy(instance)
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def get_or_create_guest_client(self, request):
+        guest_uuid_str = request.data.get('guest_uuid')
+        email = request.data.get('email')
+        first_name = request.data.get('first_name')
+        last_name = request.data.get('last_name')
+        telefono = request.data.get('telefono')
+
+        if guest_uuid_str:
+            try:
+                cliente_instance = Cliente.objects.get(guest_uuid=guest_uuid_str, user__isnull=True)
+                serializer = self.get_serializer(cliente_instance)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            except Cliente.DoesNotExist:
+                pass 
+            except ValueError:
+                raise ValidationError({"guest_uuid": "Formato de UUID inválido."})
+
+        if not guest_uuid_str:
+            import uuid 
+            guest_uuid_str = uuid.uuid4() 
+
+        serializer = self.get_serializer(data={
+            'guest_uuid': guest_uuid_str,
+            'is_guest': True,
+            'email': email,
+            'first_name': first_name,
+            'last_name': last_name,
+            'telefono': telefono,
+        })
+        serializer.is_valid(raise_exception=True)
+        cliente_instance = serializer.save(user=None, is_guest=True) 
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+# ------------------------------------------------------------------
+# 7. DIRECCIÓN VIEWSET (CRUD para Direcciones)
+# ------------------------------------------------------------------
+class DireccionViewSet(viewsets.ModelViewSet):
+    queryset = Direccion.objects.all()
+    serializer_class = DireccionSerializer 
+    permission_classes = [IsAuthenticated] 
+
+    def get_queryset(self):
+        if self.request.user.is_staff: 
+            return Direccion.objects.all()
+        
+        if hasattr(self.request.user, 'cliente_data'):
+            return Direccion.objects.filter(cliente=self.request.user.cliente_data)
+        return Direccion.objects.none()
+
+    def perform_create(self, serializer):
+        if not hasattr(self.request.user, 'cliente_data'):
+            raise ValidationError("El usuario debe tener un perfil de cliente para añadir direcciones.")
+        serializer.save(cliente=self.request.user.cliente_data)
+
+    def perform_update(self, serializer):
+        direccion_a_actualizar = self.get_object()
+        if not self.request.user.is_staff and direccion_a_actualizar.cliente.user != self.request.user:
+            raise ValidationError("No tienes permiso para actualizar esta dirección.")
+        super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_staff and instance.cliente.user != self.request.user:
+            raise ValidationError("No tienes permiso para eliminar esta dirección.")
+        super().perform_destroy(instance)
+
+# ------------------------------------------------------------------
+# 8. SERIALIZADOR PARA CAMBIO DE CONTRASEÑA
+# ------------------------------------------------------------------
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, validators=[validate_password])
+    new_password2 = serializers.CharField(required=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password2']:
+            raise serializers.ValidationError({"new_password": "Las nuevas contraseñas no coinciden."})
+        return attrs
+
+# ... (todo el código que ya tienes)
+
+# ------------------------------------------------------------------
+# 9. VISTA PARA CAMBIO DE CONTRASEÑA
+# ------------------------------------------------------------------
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        if not user.check_password(serializer.validated_data['old_password']):
+            return Response({"old_password": ["Contraseña actual incorrecta."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(serializer.validated_data['new_password'])
+        user.save()
+        return Response({"message": "Contraseña cambiada exitosamente."}, status=status.HTTP_200_OK)
+
