@@ -5,7 +5,10 @@ from tiendas.models import Tienda
 
 
 # ------------------------------------------------------------------
-# 1. REPARTIDOR
+# REPARTIDOR
+# Se crea cuando un usuario completa el registro como repartidor.
+# Al guardarse activa is_repartidor=True en el CustomUser,
+# igual que SellerProfile activa is_vendedor=True.
 # ------------------------------------------------------------------
 class Repartidor(models.Model):
 
@@ -13,7 +16,7 @@ class Repartidor(models.Model):
     ESTADO_CHOICES = [
         ('DISPONIBLE', 'Disponible'),   # Activo, sin pedidos, listo para tomar
         ('EN_RUTA',    'En ruta'),      # Activo, con pedidos asignados, en camino
-        ('INACTIVO',   'Inactivo'),     # No está trabajando
+        ('INACTIVO',   'Inactivo'),     # No está trabajando hoy
     ]
 
     # --- Tipo de vehículo ---
@@ -26,7 +29,9 @@ class Repartidor(models.Model):
         ('OTRO',      'Otro'),
     ]
 
-    # El repartidor tiene su propio login en la app
+    # --- Usuario asociado ---
+    # El repartidor tiene su propio login en la app.
+    # Al guardarse, activa is_repartidor=True en el CustomUser.
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -35,9 +40,9 @@ class Repartidor(models.Model):
         help_text="Cuenta de usuario del repartidor para acceder a la app."
     )
 
-    # Hoy trabaja para una tienda, en el futuro para muchas (ManyToMany)
-    # Para agregar una tienda: repartidor.tiendas.add(tienda)
-    # Para ver sus tiendas: repartidor.tiendas.all()
+    # --- Tiendas asignadas ---
+    # Hoy trabaja para una tienda, en el futuro para muchas.
+    # ManyToMany permite escalar sin cambiar el modelo.
     tiendas = models.ManyToManyField(
         Tienda,
         related_name='repartidores',
@@ -99,18 +104,26 @@ class Repartidor(models.Model):
         nombre = self.user.get_full_name() or self.user.username
         return f"{nombre} — {self.get_estado_display()} ({self.get_vehiculo_display()})"
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Activar rol de repartidor en el usuario
+        # Mismo patrón que SellerProfile con is_vendedor
+        if not self.user.is_repartidor:
+            self.user.is_repartidor = True
+            self.user.save(update_fields=['is_repartidor'])
+
     # ------------------------------------------------------------------
     # PROPIEDADES ÚTILES
     # ------------------------------------------------------------------
     @property
     def esta_activo(self):
-        """True si el repartidor está disponible o en ruta (trabajando hoy)."""
+        """True si el repartidor está trabajando hoy (disponible o en ruta)."""
         return self.estado in ['DISPONIBLE', 'EN_RUTA']
 
     @property
     def pedidos_activos(self):
         """
-        Retorna los pedidos asignados al repartidor que aún no han sido entregados,
+        Pedidos asignados al repartidor que aún no han sido entregados,
         ordenados por hora de entrega estimada.
         Este es el orden de reparto que ve el repartidor en su app.
         """
@@ -125,14 +138,14 @@ class Repartidor(models.Model):
 
     def actualizar_estado(self):
         """
-        Actualiza automáticamente el estado del repartidor según sus pedidos activos.
+        Actualiza automáticamente el estado según los pedidos activos.
         Llamar después de asignar o completar un pedido.
+        Si está INACTIVO no cambia automáticamente — solo el emprendedor
+        puede marcarlo como DISPONIBLE.
         """
         if self.estado == 'INACTIVO':
-            return  # Si está inactivo, no cambia automáticamente
-        if self.cantidad_pedidos_activos > 0:
-            self.estado = 'EN_RUTA'
-        else:
-            self.estado = 'DISPONIBLE'
-        self.save(update_fields=['estado'])
-
+            return
+        nuevo_estado = 'EN_RUTA' if self.cantidad_pedidos_activos > 0 else 'DISPONIBLE'
+        if self.estado != nuevo_estado:
+            self.estado = nuevo_estado
+            self.save(update_fields=['estado'])

@@ -1,101 +1,123 @@
     # tiendas/views.py
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.serializers import ValidationError
-from rest_framework.decorators import action 
+from rest_framework.decorators import action
 
-from .models import Tienda, RadioEnvio
-from .serializers import TiendaSerializer, RadioEnvioSerializer
+from .models import Tienda, RadioEnvio, CuadranteEnvio
+from .serializers import TiendaSerializer, RadioEnvioSerializer, CuadranteEnvioSerializer
 
 from usuarios.permissions import IsSeller 
 from usuarios.models import SellerProfile
 
 class TiendaViewSet(viewsets.ModelViewSet):
-    queryset = Tienda.objects.all()
+    """
+    ViewSet para gestionar las Tiendas.
+    - Público: Ver todas las tiendas activas.
+    - Vendedores: Gestionar sus propias tiendas.
+    """
     serializer_class = TiendaSerializer
-    
+
     def get_permissions(self):
+        # Solo los vendedores pueden crear, editar o borrar
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsSeller()] 
+            return [IsSeller()]
         return [AllowAny()]
 
     def get_queryset(self):
-        if self.request.user.is_authenticated and hasattr(self.request.user, 'seller_profile') and not self.request.user.is_staff:
-            return Tienda.objects.filter(propietario_perfil=self.request.user.seller_profile)
-        return Tienda.objects.all()
+        user = self.request.user
+        # Si el usuario es vendedor y no es administrador, ve solo sus tiendas
+        if user.is_authenticated and hasattr(user, 'seller_profile') and not user.is_staff:
+            return Tienda.objects.filter(propietario_perfil=user.seller_profile)
+        # Por defecto (Público/Admin) se ven todas las tiendas activas
+        return Tienda.objects.filter(activo=True)
 
     def perform_create(self, serializer):
-        try:
-            perfil_vendedor = self.request.user.seller_profile
-        except SellerProfile.DoesNotExist:
+        # Asigna automáticamente el perfil del vendedor logueado
+        if not hasattr(self.request.user, 'seller_profile'):
             raise ValidationError("El usuario no tiene un perfil de vendedor asociado.")
-        serializer.save(propietario_perfil=perfil_vendedor)
+        serializer.save(propietario_perfil=self.request.user.seller_profile)
 
     def perform_update(self, serializer):
-        tienda_a_actualizar = self.get_object()
-        if not self.request.user.is_staff and tienda_a_actualizar.propietario_perfil != self.request.user.seller_profile:
-            raise ValidationError("No tienes permiso para actualizar esta tienda.")
+        # Validación de seguridad extra: el vendedor solo edita lo suyo
+        tienda = self.get_object()
+        if not self.request.user.is_staff and tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No tienes permiso para modificar esta tienda.")
         super().perform_update(serializer)
-
-    def perform_destroy(self, instance):
-        if not self.request.user.is_staff and instance.propietario_perfil != self.request.user.seller_profile:
-            raise ValidationError("No tienes permiso para eliminar esta tienda.")
-        super().perform_destroy(instance)
-
 
     @action(detail=True, methods=['get'], permission_classes=[AllowAny])
     def calcular_envio(self, request, pk=None):
+        """
+        Calcula el costo de envío basado en latitud y longitud del cliente.
+        URL: /api/tiendas/{id}/calcular_envio/?lat=-37.79&lng=-72.71
+        """
+        tienda = self.get_object()
+        lat = request.query_params.get('lat')
+        lng = request.query_params.get('lng')
+
+        if not lat or not lng:
+            return Response(
+                {'detail': 'Se requieren los parámetros "lat" y "lng" (coordenadas del cliente).'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         try:
-            tienda = self.get_object() 
-        except Tienda.DoesNotExist:
-            return Response({'detail': 'Tienda no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+            # Lógica centralizada en el modelo (Ray Casting + Haversine)
+            costo = tienda.calcular_costo_envio(lat, lng)
+            
+            if costo is not None:
+                return Response({
+                    'tienda': tienda.nombre,
+                    'costo_envio': costo,
+                    'cubierto': True
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                'detail': 'La ubicación se encuentra fuera del radio y cuadrantes de cobertura.',
+                'costo_envio': None,
+                'cubierto': False
+            }, status=status.HTTP_404_NOT_FOUND)
 
-        distancia_km_str = request.query_params.get('distancia_km')
-
-        if not distancia_km_str:
-            return Response({'detail': 'Parámetro "distancia_km" es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            distancia_km_float = float(distancia_km_str)
-            if distancia_km_float < 0:
-                raise ValueError
-        except ValueError:
-            return Response({'detail': 'La distancia_km debe ser un número positivo válido.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        costo = tienda.calcular_costo_envio(distancia_km_float)
-
-        if costo is not None:
-            return Response({'costo_envio': costo}, status=status.HTTP_200_OK)
-        else:
-            return Response({'detail': 'Distancia fuera del radio de cobertura para esta tienda.', 'costo_envio': None}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'detail': f'Error en el cálculo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class RadioEnvioViewSet(viewsets.ModelViewSet):
-    queryset = RadioEnvio.objects.all()
+    """
+    Gestiona los radios circulares de cobertura.
+    """
     serializer_class = RadioEnvioSerializer
-    permission_classes = [IsSeller] 
+    permission_classes = [IsSeller]
 
     def get_queryset(self):
+        # Solo muestra los radios de las tiendas que pertenecen al vendedor
         if self.request.user.is_authenticated and hasattr(self.request.user, 'seller_profile'):
             return RadioEnvio.objects.filter(tienda__propietario_perfil=self.request.user.seller_profile)
         return RadioEnvio.objects.none()
 
     def perform_create(self, serializer):
-        vendedor_autenticado = self.request.user.seller_profile
-        tienda_obj = serializer.validated_data['tienda'] 
-        if tienda_obj.propietario_perfil != vendedor_autenticado:
-            raise ValidationError({"tienda": "No tienes permiso para añadir radios de envío a esta tienda."})
-        serializer.save(tienda=tienda_obj)
+        tienda = serializer.validated_data['tienda']
+        if tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No puedes añadir radios a una tienda que no te pertenece.")
+        serializer.save()
 
-    def perform_update(self, serializer):
-        radio_a_actualizar = self.get_object()
-        if not self.request.user.is_staff and radio_a_actualizar.tienda.propietario_perfil != self.request.user.seller_profile:
-            raise ValidationError("No tienes permiso para actualizar este radio de envío.")
-        super().perform_update(serializer)
 
-    def perform_destroy(self, instance):
-        if not self.request.user.is_staff and instance.tienda.propietario_perfil != self.request.user.seller_profile:
-            raise ValidationError("No tienes permiso para eliminar este radio de envío.")
-        super().perform_destroy(instance)
+class CuadranteEnvioViewSet(viewsets.ModelViewSet):
+    """
+    Gestiona los polígonos (geofencing) de cobertura.
+    """
+    serializer_class = CuadranteEnvioSerializer
+    permission_classes = [IsSeller]
 
+    def get_queryset(self):
+        # Solo muestra los cuadrantes de las tiendas que pertenecen al vendedor
+        if self.request.user.is_authenticated and hasattr(self.request.user, 'seller_profile'):
+            return CuadranteEnvio.objects.filter(tienda__propietario_perfil=self.request.user.seller_profile)
+        return CuadranteEnvio.objects.none()
+
+    def perform_create(self, serializer):
+        tienda = serializer.validated_data['tienda']
+        if tienda.propietario_perfil != self.request.user.seller_profile:
+            raise ValidationError("No puedes añadir cuadrantes a una tienda que no te pertenece.")
+        serializer.save()
