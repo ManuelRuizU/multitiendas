@@ -5,11 +5,8 @@ from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
 
-# Importa las vistas de token de simple_jwt
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+from rest_framework_simplejwt.views import TokenRefreshView
+from usuarios.views import MyTokenObtainPairView
 
 from .views import tienda_home_view
 
@@ -25,9 +22,10 @@ urlpatterns = [
     path('api/', include('carritos.urls')),
     path('api/', include('pedidos.urls')),
     path('api/', include('plataforma_config.urls')),
+    path('api/', include('repartidores.urls')),
 
-    # URLs para tokens JWT
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # URLs para tokens JWT (ruta canónica; MyTokenObtainPairView añade datos del usuario en la respuesta)
+    path('api/token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     # URLs para el login/logout del DRF browsable API (opcional, pero útil)

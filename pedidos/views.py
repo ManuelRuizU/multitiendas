@@ -36,19 +36,29 @@ class IsOrderOwnerOrSeller(permissions.BasePermission):
         if request.user.is_staff:
             return True
 
-        if hasattr(request.user, 'cliente'):
-            if isinstance(obj, Order) and obj.cliente == request.user.cliente:
+        if hasattr(request.user, 'cliente_data'):
+            if isinstance(obj, Order) and obj.cliente == request.user.cliente_data:
                 return True
-            if isinstance(obj, OrderItem) and obj.order.cliente == request.user.cliente:
+            if isinstance(obj, OrderItem) and obj.order.cliente == request.user.cliente_data:
                 return True
 
-        if hasattr(request.user, 'perfil_vendedor'):
-            if isinstance(obj, Order) and obj.tienda.vendedor == request.user.perfil_vendedor:
+        if hasattr(request.user, 'seller_profile'):
+            if isinstance(obj, Order) and obj.tienda.propietario_perfil == request.user.seller_profile:
                 return True
-            if isinstance(obj, OrderItem) and obj.order.tienda.vendedor == request.user.perfil_vendedor:
+            if isinstance(obj, OrderItem) and obj.order.tienda.propietario_perfil == request.user.seller_profile:
                 return True
             
         return False
+
+
+VALID_TRANSITIONS = {
+    'PENDING':    ['CONFIRMED', 'CANCELLED'],
+    'CONFIRMED':  ['PREPARING', 'CANCELLED'],
+    'PREPARING':  ['ON_THE_WAY', 'CANCELLED'],
+    'ON_THE_WAY': ['DELIVERED', 'CANCELLED'],
+    'DELIVERED':  [],
+    'CANCELLED':  [],
+}
 
 
 # ViewSet para usuarios registrados
@@ -62,11 +72,11 @@ class OrderViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_authenticated and user.is_staff:
             return Order.objects.all()
-        if hasattr(user, 'cliente'):
-            return Order.objects.filter(cliente=user.cliente)
-        if hasattr(user, 'perfil_vendedor'):
+        if hasattr(user, 'cliente_data'):
+            return Order.objects.filter(cliente=user.cliente_data)
+        if hasattr(user, 'seller_profile'):
             # Los vendedores solo pueden ver los pedidos de su tienda
-            return Order.objects.filter(tienda__vendedor=user.perfil_vendedor)
+            return Order.objects.filter(tienda__propietario_perfil=user.seller_profile)
         return Order.objects.none()
 
     def perform_create(self, serializer):
@@ -97,19 +107,27 @@ class OrderViewSet(viewsets.ModelViewSet):
         # 3. Guardar el pedido, asignando el perfil de cliente validado.
         serializer.save(cliente=cliente_perfil)
 
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated, IsOrderOwnerOrSeller]) 
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated, IsOrderOwnerOrSeller])
     def change_status(self, request, pk=None):
         order = self.get_object()
         new_status = request.data.get('status')
 
         if new_status not in [choice[0] for choice in Order.STATUS_CHOICES]:
             return Response({'error': 'Estado de pedido inválido.'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        allowed = VALID_TRANSITIONS.get(order.status, [])
+        if new_status not in allowed:
+            return Response(
+                {'error': f"Transición no permitida: {order.status} → {new_status}. "
+                          f"Transiciones válidas: {allowed or 'ninguna'}."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         if self.request.user.is_staff or \
-           (hasattr(self.request.user, 'perfil_vendedor') and order.tienda.vendedor == self.request.user.perfil_vendedor):
+           (hasattr(self.request.user, 'seller_profile') and order.tienda.propietario_perfil == self.request.user.seller_profile):
             order.status = new_status
             order.save()
-            return Response({'status': f'Estado de pedido cambiado a {new_status}'})
+            return Response({'status': f'Estado cambiado a {new_status}'})
         else:
             return Response({'error': 'No tiene permiso para cambiar el estado de este pedido.'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -125,11 +143,11 @@ class OrderItemViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_authenticated and user.is_staff:
             return OrderItem.objects.all()
         
-        if hasattr(user, 'cliente'):
-            return OrderItem.objects.filter(order__cliente=user.cliente)
-        
-        if hasattr(user, 'perfil_vendedor'):
-            return OrderItem.objects.filter(order__tienda__vendedor=user.perfil_vendedor)
+        if hasattr(user, 'cliente_data'):
+            return OrderItem.objects.filter(order__cliente=user.cliente_data)
+
+        if hasattr(user, 'seller_profile'):
+            return OrderItem.objects.filter(order__tienda__propietario_perfil=user.seller_profile)
             
         return OrderItem.objects.none() 
 
@@ -141,4 +159,4 @@ class OrderInvitadoViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
 
     def perform_create(self, serializer):
-        serializer.save(cliente=None)
+        serializer.save()

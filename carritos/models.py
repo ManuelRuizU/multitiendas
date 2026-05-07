@@ -95,7 +95,21 @@ class Carrito(models.Model):
 
     def save(self, *args, **kwargs):
         self.full_clean()
+
+        # Detectar cambio de metodo_pago antes de persistir
+        metodo_cambio = False
+        if self.pk:
+            try:
+                anterior = Carrito.objects.get(pk=self.pk)
+                if anterior.metodo_pago != self.metodo_pago:
+                    metodo_cambio = True
+            except Carrito.DoesNotExist:
+                pass
+
         super().save(*args, **kwargs)
+
+        if metodo_cambio:
+            self.actualizar_precios()
 
     def __str__(self):
         if self.usuario:

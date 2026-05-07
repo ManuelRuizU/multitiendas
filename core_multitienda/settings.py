@@ -76,7 +76,6 @@ INSTALLED_APPS = [
     'pedidos',
     'carritos',
     'repartidores',
-    'codigos_qr',
     'plataforma_config',
 ]
 

@@ -51,7 +51,7 @@ class CarritoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Carrito
         fields = [
-            'id', 'usuario', 'guest_id', 'fecha_creacion', 'fecha_actualizacion',
+            'id', 'usuario', 'guest_id', 'metodo_pago', 'fecha_creacion', 'fecha_actualizacion',
             'items', 'total_items', 'cantidad_total_productos', 'subtotal_total'
         ]
         read_only_fields = ['id', 'fecha_creacion', 'fecha_actualizacion', 'usuario']

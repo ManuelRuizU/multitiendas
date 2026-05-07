@@ -9,7 +9,7 @@ from rest_framework.exceptions import ValidationError
 import logging
 
 # Importar los modelos locales y la función de utilidad
-from .models import BuyerProfile, SellerProfile, Cliente, Direccion, UserType
+from usuarios.models import BuyerProfile, SellerProfile, Cliente, Direccion
 from .utils import get_geocoding_from_address
 
 # Configurar logging para depuración
@@ -27,8 +27,8 @@ class UserSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'user_type']
-        read_only_fields = ['id', 'user_type']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name']
+        read_only_fields = ['id']
 
 # ------------------------------------------------------------------
 # 2. SERIALIZADOR DE REGISTRO DE COMPRADOR
@@ -91,7 +91,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
                 password=validated_data['password'],
                 first_name=validated_data['first_name'],
                 last_name=validated_data['last_name'],
-                user_type=UserType.BUYER,
+                is_cliente=True,
                 is_active=True  # Añadido explícitamente
             )
             cliente = Cliente.objects.create(
@@ -245,7 +245,7 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
                 password=validated_data['password'],
                 first_name=validated_data['first_name'],
                 last_name=validated_data['last_name'],
-                user_type=UserType.SELLER,
+                is_vendedor=True,
                 is_active=True
             )
             SellerProfile.objects.create(user=user, **seller_profile_data)

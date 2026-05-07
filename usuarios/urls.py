@@ -1,35 +1,36 @@
 # usuarios/urls.py
-# version final 10/8/2025
-
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-# Asegúrate de que estas importaciones coincidan con las clases en usuarios/views.py
 from .views import (
-    MyTokenObtainPairView, 
-    UserViewSet, 
-    BuyerProfileViewSet, 
-    SellerProfileViewSet, 
-    ClienteViewSet, 
-    DireccionViewSet, 
-    SellerRegistrationView, 
-    ChangePasswordView 
+    UserViewSet,
+    BuyerProfileViewSet,
+    SellerProfileViewSet,
+    ClienteViewSet,
+    DireccionViewSet,
+    ClienteRegistrationView,
+    SellerRegistrationView,
+    RepartidorRegistrationView,
+    ChangePasswordView,
 )
 
-# Crea un enrutador para tus ViewSets
 router = DefaultRouter()
-router.register(r'users', UserViewSet) 
+router.register(r'users', UserViewSet, basename='user')
 router.register(r'buyer-profiles', BuyerProfileViewSet, basename='buyer-profile')
 router.register(r'seller-profiles', SellerProfileViewSet, basename='seller-profile')
-router.register(r'clientes', ClienteViewSet, basename='cliente') 
-router.register(r'direcciones', DireccionViewSet, basename='direccion') 
+router.register(r'clientes', ClienteViewSet, basename='cliente')
+router.register(r'direcciones', DireccionViewSet, basename='direccion')
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('register-seller/', SellerRegistrationView.as_view(), name='register-seller'),
+
+    # --- Registro por rol ---
+    path('register/cliente/', ClienteRegistrationView.as_view(), name='register-cliente'),
+    path('register/vendedor/', SellerRegistrationView.as_view(), name='register-vendedor'),
+    path('register/repartidor/', RepartidorRegistrationView.as_view(), name='register-repartidor'),
+
+    # --- Cuenta ---
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
 ]
-
 
 
 

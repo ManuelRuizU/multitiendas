@@ -93,6 +93,30 @@ class CarritoViewSet(viewsets.GenericViewSet):
                 return Response(serializer.data, status=status.HTTP_200_OK)
 
         @action(detail=False, methods=['post'])
+        def cambiar_metodo_pago(self, request):
+            if not request.user.is_authenticated:
+                return Response({"detail": "Debe estar autenticado."}, status=status.HTTP_401_UNAUTHORIZED)
+
+            try:
+                carrito = request.user.carrito
+            except Carrito.DoesNotExist:
+                return Response({"detail": "No tiene un carrito activo."}, status=status.HTTP_404_NOT_FOUND)
+
+            nuevo_metodo = request.data.get('metodo_pago')
+            opciones_validas = [choice[0] for choice in Carrito.METODO_PAGO_CHOICES]
+            if nuevo_metodo not in opciones_validas:
+                return Response(
+                    {"detail": f"Método de pago inválido. Opciones: {opciones_validas}."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            carrito.metodo_pago = nuevo_metodo
+            carrito.save()  # Carrito.save() detecta el cambio y llama actualizar_precios()
+
+            serializer = self.get_serializer(carrito)
+            return Response(serializer.data)
+
+        @action(detail=False, methods=['post'])
         def fusionar_carrito(self, request):
             if not request.user.is_authenticated:
                 return Response({"detail": "Debe estar autenticado para fusionar un carrito."}, status=status.HTTP_401_UNAUTHORIZED)

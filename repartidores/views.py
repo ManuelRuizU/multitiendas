@@ -12,7 +12,7 @@ import uuid
 
 from rest_framework.views import APIView 
 
-from .models import BuyerProfile, SellerProfile, Cliente, Direccion, UserType
+from usuarios.models import BuyerProfile, SellerProfile, Cliente, Direccion
 from .serializers import (
     UserSerializer, 
     UserRegistrationSerializer, 

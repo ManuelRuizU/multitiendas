@@ -247,12 +247,12 @@ class Order(models.Model):
             self.closed_at = timezone.now()
 
         if not self.pk:
-            # Primera vez que se guarda: necesitamos el pk para acceder a los items
+            # Primera vez: guardar con los montos que provee el serializer.
+            # NO recalcular aquí — los OrderItems aún no existen en este momento
+            # y calculate_subtotal() devolvería 0, sobreescribiendo valores correctos.
             super().save(*args, **kwargs)
-            self.subtotal_amount = self.calculate_subtotal()
-            self.total_amount = self.calculate_total_amount()
-            super().save(update_fields=['subtotal_amount', 'total_amount'])
         else:
+            # Actualizaciones posteriores: recalcular desde los items existentes.
             self.subtotal_amount = self.calculate_subtotal()
             self.total_amount = self.calculate_total_amount()
             super().save(*args, **kwargs)
@@ -326,8 +326,14 @@ class Order(models.Model):
         # Items del pedido
         lineas.append("🧾 *Detalle del pedido:*")
         for item in self.items.all():
-            nombre_producto = item.product.nombre if item.product else "Producto eliminado"
-            lineas.append(f"• {item.quantity} x {nombre_producto} — ${item.price_at_purchase:,.0f}")
+            # product_name_snapshot preserva el nombre aunque el producto sea eliminado
+            nombre_producto = (
+                item.product_name_snapshot
+                or (item.product.nombre if item.product else "Producto eliminado")
+            )
+            # price_at_purchase permite NULL — proteger el formateo
+            precio = item.price_at_purchase if item.price_at_purchase is not None else 0
+            lineas.append(f"• {item.quantity} x {nombre_producto} — ${precio:,.0f}")
         lineas.append("")
 
         # Montos

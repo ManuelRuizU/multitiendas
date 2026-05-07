@@ -2,8 +2,6 @@
 
 
 from rest_framework import permissions
-# Importa los modelos necesarios directamente
-from .models import UserType, SellerProfile
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
     """
@@ -48,8 +46,8 @@ class IsSeller(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
 
-        # Verifica si el usuario es de tipo SELLER
-        if request.user.user_type != UserType.SELLER:
+        # Verifica si el usuario tiene rol de vendedor
+        if not request.user.is_vendedor:
             return False
 
         # Opcional: Verifica si el perfil de vendedor está completo
