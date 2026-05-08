@@ -51,6 +51,19 @@ def get_or_create_carrito(request):
     )
 
 
+def get_carrito(request):
+    """
+    Retorna el carrito existente o None.
+    No crea uno nuevo — usar para operaciones de edición.
+    """
+    if request.user.is_authenticated:
+        return Carrito.objects.filter(usuario=request.user).first()
+    guest_id = request.data.get('guest_id') or request.query_params.get('guest_id')
+    if not guest_id:
+        return None
+    return Carrito.objects.filter(guest_id=guest_id).first()
+
+
 # ------------------------------------------------------------------
 # 1. CARRITO VIEWSET
 # ------------------------------------------------------------------
@@ -167,6 +180,134 @@ class CarritoViewSet(viewsets.GenericViewSet):
             item.cantidad = nueva_cantidad
             item.save(update_fields=['cantidad'])
 
+        return Response(self.get_serializer(carrito).data)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsCartOwner])
+    def eliminar_producto(self, request):
+        """
+        Elimina un producto del carrito.
+        Si el grupo de esa tienda queda vacío, también se elimina.
+        Body: {"producto_id": 1}
+        Invitados: {"producto_id": 1, "guest_id": "uuid"}
+        """
+        producto_id = request.data.get('producto_id')
+        if not producto_id:
+            return Response(
+                {"detail": "producto_id es requerido."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            producto = Producto.objects.get(pk=producto_id)
+        except Producto.DoesNotExist:
+            return Response(
+                {"detail": f"Producto {producto_id} no encontrado."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        carrito = get_carrito(request)
+        if not carrito:
+            return Response(
+                {"detail": "No tienes carrito activo."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            item = ItemCarrito.objects.get(grupo__carrito=carrito, producto=producto)
+        except ItemCarrito.DoesNotExist:
+            return Response(
+                {"detail": f"'{producto.nombre}' no está en el carrito."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        grupo = item.grupo
+        item.delete()
+        if not grupo.items.exists():
+            grupo.delete()
+
+        return Response(self.get_serializer(carrito).data)
+
+    @action(detail=False, methods=['patch'], permission_classes=[IsCartOwner])
+    def actualizar_cantidad(self, request):
+        """
+        Cambia la cantidad de un producto en el carrito.
+        Si cantidad <= 0 elimina el item (y el grupo si queda vacío).
+        Body: {"producto_id": 1, "cantidad": 3}
+        Invitados: {"producto_id": 1, "cantidad": 3, "guest_id": "uuid"}
+        """
+        producto_id = request.data.get('producto_id')
+        if not producto_id:
+            return Response(
+                {"detail": "producto_id es requerido."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            cantidad = int(request.data.get('cantidad'))
+        except (ValueError, TypeError):
+            return Response(
+                {"detail": "cantidad es requerida y debe ser un entero."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            producto = Producto.objects.select_related('tienda').get(pk=producto_id)
+        except Producto.DoesNotExist:
+            return Response(
+                {"detail": f"Producto {producto_id} no encontrado."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        carrito = get_carrito(request)
+        if not carrito:
+            return Response(
+                {"detail": "No tienes carrito activo."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            item = ItemCarrito.objects.get(grupo__carrito=carrito, producto=producto)
+        except ItemCarrito.DoesNotExist:
+            return Response(
+                {"detail": f"'{producto.nombre}' no está en el carrito."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if cantidad <= 0:
+            grupo = item.grupo
+            item.delete()
+            if not grupo.items.exists():
+                grupo.delete()
+            return Response(self.get_serializer(carrito).data)
+
+        if not producto.stock_ilimitado and cantidad > producto.stock:
+            return Response(
+                {
+                    "detail": f"Stock insuficiente de '{producto.nombre}'. "
+                              f"Disponible: {producto.stock}."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        item.cantidad = cantidad
+        item.save(update_fields=['cantidad'])
+
+        return Response(self.get_serializer(carrito).data)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsCartOwner])
+    def vaciar_carrito(self, request):
+        """
+        Elimina todos los grupos e items del carrito.
+        El carrito en sí se conserva.
+        Body invitados: {"guest_id": "uuid"}
+        """
+        carrito = get_carrito(request)
+        if not carrito:
+            return Response(
+                {"detail": "No tienes carrito activo."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        carrito.grupos.all().delete()
         return Response(self.get_serializer(carrito).data)
 
     @action(detail=False, methods=['post'])

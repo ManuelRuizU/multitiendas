@@ -1,257 +1,322 @@
 # pedidos/serializers.py
-
 from rest_framework import serializers
-from rest_framework.serializers import ValidationError
 from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 from decimal import Decimal
 
 from .models import Order, OrderItem
 from tiendas.models import Tienda
 from productos.models import Producto
 from usuarios.models import Cliente, Direccion
-
-from usuarios.serializers import DireccionSerializer, ClienteSerializer
-from tiendas.serializers import TiendaSerializer
-from productos.serializers import ProductoSerializer
+from carritos.models import Carrito, GrupoCarrito
 
 
 # ------------------------------------------------------------------
-# SERIALIZADOR DE ÍTEM DE PEDIDO
+# 1. SERIALIZER DE ÍTEM DE PEDIDO
 # ------------------------------------------------------------------
 class OrderItemSerializer(serializers.ModelSerializer):
-    product = ProductoSerializer(read_only=True)
+    nombre_producto = serializers.CharField(
+        source='product_name_snapshot',
+        read_only=True
+    )
     product_id = serializers.PrimaryKeyRelatedField(
         queryset=Producto.objects.all(),
         source='product',
-        write_only=True
-    )
-    quantity = serializers.IntegerField(min_value=1)
-
-    class Meta:
-        model = OrderItem
-        fields = ['id', 'product', 'product_id', 'quantity', 'price_at_purchase']
-        read_only_fields = ['id', 'price_at_purchase']
-
-
-# ------------------------------------------------------------------
-# SERIALIZADOR PRINCIPAL DE PEDIDO (usuarios registrados)
-# ------------------------------------------------------------------
-class OrderSerializer(serializers.ModelSerializer):
-    # Lectura: representaciones completas
-    cliente = ClienteSerializer(read_only=True)
-    tienda = TiendaSerializer(read_only=True)
-    delivery_address = DireccionSerializer(read_only=True)
-    billing_address = DireccionSerializer(read_only=True)
-
-    # Escritura: solo IDs
-    tienda_id = serializers.PrimaryKeyRelatedField(
-        queryset=Tienda.objects.all(),
-        source='tienda',
-        write_only=True
-    )
-    delivery_address_id = serializers.PrimaryKeyRelatedField(
-        queryset=Direccion.objects.all(),
-        source='delivery_address',
-        write_only=True
-    )
-    billing_address_id = serializers.PrimaryKeyRelatedField(
-        queryset=Direccion.objects.all(),
-        source='billing_address',
         write_only=True,
         allow_null=True,
         required=False
     )
-    items = OrderItemSerializer(many=True, write_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = [
+            'id', 'product_id', 'nombre_producto',
+            'quantity', 'price_at_purchase',
+            'get_total_price',
+        ]
+        read_only_fields = ['id', 'nombre_producto', 'price_at_purchase', 'get_total_price']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['total_item'] = instance.get_total_price()
+        return data
+
+
+# ------------------------------------------------------------------
+# 2. SERIALIZER DE PEDIDO (lectura)
+# ------------------------------------------------------------------
+class OrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True, read_only=True)
+    tienda_nombre = serializers.CharField(source='tienda.nombre', read_only=True)
+    tienda_whatsapp = serializers.CharField(
+        source='tienda.propietario_perfil.whatsapp_url',
+        read_only=True
+    )
+    cliente_nombre = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    tipo_entrega_display = serializers.CharField(source='get_tipo_entrega_display', read_only=True)
+    metodo_pago_display = serializers.CharField(source='get_metodo_pago_display', read_only=True)
+    loyverse_listo = serializers.ReadOnlyField()
+    resumen_whatsapp = serializers.ReadOnlyField()
 
     class Meta:
         model = Order
         fields = [
-            'id', 'cliente', 'tienda', 'tienda_id', 'order_date', 'status',
+            'id', 'order_date', 'status', 'status_display',
+            'tipo_entrega', 'tipo_entrega_display',
+            'metodo_pago', 'metodo_pago_display',
+            'tienda', 'tienda_nombre', 'tienda_whatsapp',
+            'cliente', 'cliente_nombre',
+            'delivery_address',
             'subtotal_amount', 'delivery_cost', 'total_amount',
-            'delivery_address', 'delivery_address_id',
-            'billing_address', 'billing_address_id',
-            'customer_notes', 'tienda_notes', 'items',
+            'customer_notes', 'tienda_notes',
+            'confirmed_at', 'closed_at',
+            'loyverse_receipt_id', 'loyverse_synced',
+            'loyverse_synced_at', 'loyverse_sync_error',
+            'loyverse_listo',
+            'resumen_whatsapp',
+            'items',
         ]
-        read_only_fields = [
-            'id', 'order_date', 'status', 'cliente',
-            'subtotal_amount', 'delivery_cost', 'total_amount',
-        ]
+        read_only_fields = fields
 
-    def validate_items(self, items_data):
-        if not items_data:
-            raise serializers.ValidationError("El pedido debe contener al menos un ítem.")
-        return items_data
-
-    def create(self, validated_data):
-        items_data = validated_data.pop('items')
-
-        with transaction.atomic():
-            tienda_obj = validated_data['tienda']
-            delivery_address_obj = validated_data['delivery_address']
-
-            # FIX 4 — Validar tienda activa
-            if not tienda_obj.activo:
-                raise serializers.ValidationError(
-                    "La tienda no está disponible actualmente."
-                )
-
-            # FIX 3 — Bloquear filas de productos con SELECT FOR UPDATE
-            # Previene condición de carrera: dos pedidos simultáneos leen el
-            # mismo stock, ambos pasan la validación y dejan stock negativo.
-            product_ids = [item['product'].id for item in items_data]
-            productos_locked = {
-                p.id: p
-                for p in Producto.objects.select_for_update().filter(id__in=product_ids)
-            }
-
-            subtotal_amount = Decimal('0')
-            items_to_create = []
-
-            for item_data in items_data:
-                product = productos_locked[item_data['product'].id]
-                quantity = item_data['quantity']
-
-                if product.tienda != tienda_obj:
-                    raise serializers.ValidationError(
-                        f"El producto '{product.nombre}' no pertenece a la tienda seleccionada."
-                    )
-
-                # FIX 3 — Respetar stock_ilimitado al validar stock
-                if not product.stock_ilimitado and product.stock < quantity:
-                    raise serializers.ValidationError(
-                        f"Stock insuficiente para '{product.nombre}'. "
-                        f"Disponible: {product.stock}."
-                    )
-
-                price_at_purchase = product.precio_efectivo
-                subtotal_amount += price_at_purchase * quantity
-                items_to_create.append({
-                    'product': product,
-                    'quantity': quantity,
-                    'price_at_purchase': price_at_purchase,
-                })
-
-            # FIX 2 — Cálculo de envío centralizado en Tienda.calcular_costo_envio()
-            # Usa Haversine + cuadrantes con prioridad correcta.
-            # Se elimina la llamada a Google Maps Distance Matrix API.
-            delivery_cost = Decimal('0')
-            if delivery_address_obj.latitud and delivery_address_obj.longitud:
-                costo = tienda_obj.calcular_costo_envio(
-                    delivery_address_obj.latitud,
-                    delivery_address_obj.longitud,
-                )
-                if costo is None:
-                    raise serializers.ValidationError(
-                        "La dirección de entrega está fuera del área de despacho de esta tienda."
-                    )
-                delivery_cost = costo
-            # Si faltan coordenadas se deja delivery_cost = 0 (sin despacho calculable)
-
-            total_amount = subtotal_amount + delivery_cost
-
-            # Crear el Order con montos ya calculados.
-            # Order.save() NO recalcula en la creación inicial (ver pedidos/models.py).
-            order = Order.objects.create(
-                subtotal_amount=subtotal_amount,
-                delivery_cost=delivery_cost,
-                total_amount=total_amount,
-                **validated_data
-            )
-
-            # FIX 3 — Crear OrderItems y descontar stock de forma atómica con F()
-            # F('stock') - quantity se ejecuta en una sola sentencia UPDATE en BD,
-            # sin leer el valor a Python, garantizando atomicidad real.
-            for item_to_create in items_to_create:
-                OrderItem.objects.create(order=order, **item_to_create)
-                if not item_to_create['product'].stock_ilimitado:
-                    Producto.objects.filter(id=item_to_create['product'].id).update(
-                        stock=F('stock') - item_to_create['quantity']
-                    )
-
-            # FIX 1 — Vaciar el carrito del usuario autenticado si pertenece a esta tienda
-            request = self.context.get('request')
-            if request and request.user.is_authenticated:
-                try:
-                    carrito = request.user.carrito
-                    if carrito.tienda_id == tienda_obj.id:
-                        carrito.items.all().delete()
-                except Exception:
-                    pass  # Sin carrito activo: no es un error
-
-            return order
+    def get_cliente_nombre(self, obj):
+        if not obj.cliente:
+            return "Cliente eliminado"
+        if obj.cliente.user:
+            return obj.cliente.user.get_full_name() or obj.cliente.user.username
+        nombre = f"{obj.cliente.first_name or ''} {obj.cliente.last_name or ''}".strip()
+        return nombre or obj.cliente.email or "Invitado"
 
 
 # ------------------------------------------------------------------
-# SERIALIZADOR DE PEDIDO PARA INVITADOS
+# 3. SERIALIZER DE CHECKOUT MULTITIENDA
+# Convierte el carrito completo en múltiples Orders (uno por tienda)
 # ------------------------------------------------------------------
-class OrderInvitadoSerializer(OrderSerializer):
-    # Datos del cliente invitado
-    guest_nombre = serializers.CharField(max_length=150, write_only=True)
-    guest_apellido = serializers.CharField(max_length=150, write_only=True, required=False, allow_blank=True)
-    guest_telefono = serializers.CharField(max_length=30, write_only=True)
-    guest_email = serializers.EmailField(write_only=True, required=False, allow_null=True)
+class CheckoutSerializer(serializers.Serializer):
+    """
+    Serializer para el checkout multitienda.
+    Recibe el carrito del usuario y genera un Order por cada GrupoCarrito.
 
-    # Dirección inline — obligatoria para invitados (no tienen direcciones guardadas)
-    calle = serializers.CharField(max_length=255, write_only=True)
-    numero = serializers.CharField(max_length=20, write_only=True)
-    comuna = serializers.CharField(max_length=100, write_only=True)
-    ciudad = serializers.CharField(max_length=100, write_only=True)
-    region = serializers.CharField(max_length=100, write_only=True)
-    latitud = serializers.DecimalField(max_digits=9, decimal_places=6, write_only=True, required=False, allow_null=True)
-    longitud = serializers.DecimalField(max_digits=9, decimal_places=6, write_only=True, required=False, allow_null=True)
-
-    # delivery_address_id es opcional para invitados: se crea inline desde los campos de dirección
-    delivery_address_id = serializers.PrimaryKeyRelatedField(
+    Campos opcionales globales que se aplican a todos los grupos
+    si no están configurados en el GrupoCarrito:
+    """
+    # Dirección global (se usa si el grupo no tiene dirección configurada)
+    direccion_id = serializers.PrimaryKeyRelatedField(
         queryset=Direccion.objects.all(),
-        source='delivery_address',
-        write_only=True,
         required=False,
-        allow_null=True,
+        allow_null=True
     )
 
-    class Meta(OrderSerializer.Meta):
-        fields = OrderSerializer.Meta.fields + [
-            'guest_nombre', 'guest_apellido', 'guest_telefono', 'guest_email',
-            'calle', 'numero', 'comuna', 'ciudad', 'region', 'latitud', 'longitud',
-        ]
-        read_only_fields = OrderSerializer.Meta.read_only_fields + ['cliente']
+    # Notas globales
+    notas_globales = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True
+    )
+
+    # Para invitados
+    guest_id = serializers.CharField(required=False, allow_null=True)
+
+    # Datos del cliente invitado (si aplica)
+    guest_nombre = serializers.CharField(required=False, allow_blank=True)
+    guest_apellido = serializers.CharField(required=False, allow_blank=True)
+    guest_telefono = serializers.CharField(required=False, allow_blank=True)
+    guest_email = serializers.EmailField(required=False, allow_null=True)
+
+    # Dirección inline para invitados
+    calle = serializers.CharField(required=False, allow_blank=True)
+    numero = serializers.CharField(required=False, allow_blank=True)
+    comuna = serializers.CharField(required=False, allow_blank=True)
+    ciudad = serializers.CharField(required=False, allow_blank=True)
+    region = serializers.CharField(required=False, allow_blank=True)
+    latitud = serializers.DecimalField(
+        max_digits=9, decimal_places=6,
+        required=False, allow_null=True
+    )
+    longitud = serializers.DecimalField(
+        max_digits=9, decimal_places=6,
+        required=False, allow_null=True
+    )
+
+    def validate(self, data):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+
+        # Obtener carrito
+        if user is not None and user.is_authenticated:
+            try:
+                carrito = Carrito.objects.get(usuario=user)
+            except Carrito.DoesNotExist:
+                raise serializers.ValidationError("No tienes un carrito activo.")
+        else:
+            guest_id = data.get('guest_id')
+            if not guest_id:
+                raise serializers.ValidationError(
+                    "guest_id es requerido para invitados."
+                )
+            try:
+                carrito = Carrito.objects.get(
+                    guest_id=guest_id,
+                    usuario__isnull=True
+                )
+            except Carrito.DoesNotExist:
+                raise serializers.ValidationError("Carrito de invitado no encontrado.")
+
+        if carrito.esta_vacio:
+            raise serializers.ValidationError("El carrito está vacío.")
+
+        data['carrito'] = carrito
+        return data
 
     def create(self, validated_data):
-        guest_nombre = validated_data.pop('guest_nombre')
-        guest_apellido = validated_data.pop('guest_apellido', None) or None
-        guest_telefono = validated_data.pop('guest_telefono')
-        guest_email = validated_data.pop('guest_email', None)
-        calle = validated_data.pop('calle')
-        numero = validated_data.pop('numero')
-        comuna = validated_data.pop('comuna')
-        ciudad = validated_data.pop('ciudad')
-        region = validated_data.pop('region')
-        latitud = validated_data.pop('latitud', None)
-        longitud = validated_data.pop('longitud', None)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        carrito = validated_data['carrito']
+        direccion_global = validated_data.get('direccion_id')
+        notas_globales = validated_data.get('notas_globales', '')
+
+        orders_creados = []
 
         with transaction.atomic():
-            guest_cliente = Cliente.objects.create(
-                user=None,
-                first_name=guest_nombre,
-                last_name=guest_apellido,
-                telefono=guest_telefono,
-                email=guest_email,
-            )
+            # Obtener o crear cliente
+            if user is not None and user.is_authenticated:
+                try:
+                    cliente = Cliente.objects.get(user=user)
+                except Cliente.DoesNotExist:
+                    raise serializers.ValidationError(
+                        "El usuario no tiene perfil de cliente."
+                    )
+                direccion_default = direccion_global or (
+                    cliente.direcciones.filter(principal=True).first()
+                )
+            else:
+                # Crear cliente invitado
+                cliente = Cliente.objects.create(
+                    user=None,
+                    first_name=validated_data.get('guest_nombre', ''),
+                    last_name=validated_data.get('guest_apellido', ''),
+                    telefono=validated_data.get('guest_telefono', ''),
+                    email=validated_data.get('guest_email'),
+                )
+                # Crear dirección del invitado
+                direccion_default = Direccion.objects.create(
+                    cliente=cliente,
+                    calle=validated_data.get('calle', ''),
+                    numero=validated_data.get('numero', ''),
+                    comuna=validated_data.get('comuna', ''),
+                    ciudad=validated_data.get('ciudad', ''),
+                    region=validated_data.get('region', ''),
+                    latitud=validated_data.get('latitud'),
+                    longitud=validated_data.get('longitud'),
+                    principal=True,
+                )
 
-            direccion = Direccion.objects.create(
-                cliente=guest_cliente,
-                calle=calle,
-                numero=numero,
-                comuna=comuna,
-                ciudad=ciudad,
-                region=region,
-                latitud=latitud,
-                longitud=longitud,
-                principal=True,
-            )
+            # Crear un Order por cada GrupoCarrito
+            for grupo in carrito.grupos.prefetch_related('items__producto').all():
+                if not grupo.items.exists():
+                    continue
 
-            validated_data['cliente'] = guest_cliente
-            validated_data['delivery_address'] = direccion
+                tienda = grupo.tienda
 
-            return super().create(validated_data)
+                # Validar tienda activa
+                if not tienda.activo:
+                    raise serializers.ValidationError(
+                        f"La tienda '{tienda.nombre}' no está disponible actualmente."
+                    )
+
+                # Dirección para este pedido
+                direccion_entrega = (
+                    grupo.direccion_entrega or
+                    direccion_global or
+                    direccion_default
+                )
+
+                if not direccion_entrega:
+                    raise serializers.ValidationError(
+                        f"No hay dirección configurada para el pedido de '{tienda.nombre}'."
+                    )
+
+                # Calcular costo de envío
+                delivery_cost = Decimal('0')
+                if grupo.tipo_entrega == 'REPARTO':
+                    if direccion_entrega.latitud and direccion_entrega.longitud:
+                        costo = tienda.calcular_costo_envio(
+                            float(direccion_entrega.latitud),
+                            float(direccion_entrega.longitud)
+                        )
+                        if costo is None:
+                            raise serializers.ValidationError(
+                                f"La dirección está fuera del área de cobertura de '{tienda.nombre}'."
+                            )
+                        delivery_cost = Decimal(str(costo))
+                    else:
+                        delivery_cost = grupo.costo_envio or Decimal('0')
+
+                # Bloquear productos con SELECT FOR UPDATE
+                product_ids = [item.producto.id for item in grupo.items.all()]
+                productos_locked = {
+                    p.id: p
+                    for p in Producto.objects.select_for_update().filter(id__in=product_ids)
+                }
+
+                subtotal = Decimal('0')
+                items_to_create = []
+
+                for item in grupo.items.all():
+                    product = productos_locked[item.producto.id]
+                    quantity = item.cantidad
+
+                    # Validar stock
+                    if not product.stock_ilimitado and product.stock < quantity:
+                        raise serializers.ValidationError(
+                            f"Stock insuficiente para '{product.nombre}' "
+                            f"en '{tienda.nombre}'. Disponible: {product.stock}."
+                        )
+
+                    price = item.precio_unitario
+                    subtotal += price * quantity
+                    items_to_create.append({
+                        'product': product,
+                        'quantity': quantity,
+                        'price_at_purchase': price,
+                        'product_name_snapshot': product.nombre,
+                    })
+
+                total = subtotal + delivery_cost
+
+                # Crear el Order
+                order = Order.objects.create(
+                    cliente=cliente,
+                    tienda=tienda,
+                    tipo_entrega=grupo.tipo_entrega,
+                    metodo_pago=grupo.metodo_pago,
+                    delivery_address=direccion_entrega,
+                    subtotal_amount=subtotal,
+                    delivery_cost=delivery_cost,
+                    total_amount=total,
+                    customer_notes=grupo.notas_cliente or notas_globales or '',
+                )
+
+                # Crear OrderItems y descontar stock
+                for item_data in items_to_create:
+                    OrderItem.objects.create(order=order, **item_data)
+                    if not item_data['product'].stock_ilimitado:
+                        Producto.objects.filter(
+                            id=item_data['product'].id
+                        ).update(stock=F('stock') - item_data['quantity'])
+
+                orders_creados.append(order)
+
+            # Vaciar el carrito
+            carrito.grupos.all().delete()
+
+        return orders_creados
+
+
+# ------------------------------------------------------------------
+# 4. SERIALIZER PARA CAMBIO DE ESTADO
+# ------------------------------------------------------------------
+class OrderStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Order.STATUS_CHOICES)
+    tienda_notes = serializers.CharField(required=False, allow_blank=True)
