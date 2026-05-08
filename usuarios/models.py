@@ -308,6 +308,9 @@ class Cliente(models.Model):
 
     def clean(self):
         self.is_guest = self.user is None
+        # Registrado → guest_uuid debe ser NULL (el default lo rellena, hay que limpiarlo)
+        if self.user is not None:
+            self.guest_uuid = None
         for field in ['email', 'first_name', 'last_name', 'telefono']:
             if getattr(self, field) == '':
                 setattr(self, field, None)

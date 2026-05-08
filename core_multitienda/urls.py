@@ -1,14 +1,28 @@
 # core_multitienda/urls.py
-# modificado 19/8/2025
+
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import JsonResponse
 
 from rest_framework_simplejwt.views import TokenRefreshView
 from usuarios.views import MyTokenObtainPairView
 
 from .views import tienda_home_view
+
+def _test_view(request):
+    from usuarios.serializers import UserSerializer as US
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    u = User.objects.get(username='panaderia_gusman')
+    data = US(u).data
+    return JsonResponse({
+        'us_module': US.__module__,
+        'us_fields': list(data.keys()),
+        'us_data': dict(data),
+        'serializer_class': str(MyTokenObtainPairView.serializer_class),
+    })
 
 urlpatterns = [
     # MOVIDO: Las URLs de API y de administración deben estar al principio
@@ -25,6 +39,7 @@ urlpatterns = [
     path('api/', include('repartidores.urls')),
 
     # URLs para tokens JWT (ruta canónica; MyTokenObtainPairView añade datos del usuario en la respuesta)
+    path('api/_test/', lambda r: _test_view(r), name='test'),
     path('api/token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 

@@ -38,7 +38,7 @@ class ClienteRegistrationSerializer(serializers.ModelSerializer):
     tokens = serializers.SerializerMethodField(read_only=True)
 
     # Campos opcionales del perfil
-    telefono = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    telefono = serializers.CharField(max_length=20, required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = User
@@ -110,19 +110,19 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
     tokens = serializers.SerializerMethodField(read_only=True)
 
     # Campos del SellerProfile
-    telefono_vendedor = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    whatsapp = serializers.CharField(max_length=15, required=True)
-    rut = serializers.CharField(max_length=12, required=True)
-    razon_social = serializers.CharField(max_length=150, required=True)
-    giro = serializers.CharField(max_length=150, required=True)
-    direccion_fiscal = serializers.CharField(max_length=255, required=True)
+    telefono_vendedor = serializers.CharField(max_length=20, required=False, allow_blank=True, write_only=True)
+    whatsapp = serializers.CharField(max_length=15, required=True, write_only=True)
+    rut = serializers.CharField(max_length=12, required=True, write_only=True)
+    razon_social = serializers.CharField(max_length=150, required=True, write_only=True)
+    giro = serializers.CharField(max_length=150, required=True, write_only=True)
+    direccion_fiscal = serializers.CharField(max_length=255, required=True, write_only=True)
 
     # Dirección de la tienda (se crea como Cliente.Direccion)
-    calle = serializers.CharField(max_length=255, required=True)
-    numero = serializers.CharField(max_length=20, required=True)
-    comuna = serializers.CharField(max_length=100, required=True)
-    ciudad = serializers.CharField(max_length=100, required=True)
-    region = serializers.CharField(max_length=100, required=True)
+    calle = serializers.CharField(max_length=255, required=True, write_only=True)
+    numero = serializers.CharField(max_length=20, required=True, write_only=True)
+    comuna = serializers.CharField(max_length=100, required=True, write_only=True)
+    ciudad = serializers.CharField(max_length=100, required=True, write_only=True)
+    region = serializers.CharField(max_length=100, required=True, write_only=True)
 
     class Meta:
         model = User
@@ -234,10 +234,11 @@ class RepartidorRegistrationSerializer(serializers.ModelSerializer):
     tokens = serializers.SerializerMethodField(read_only=True)
 
     # Campos del Repartidor
-    telefono = serializers.CharField(max_length=20, required=True)
+    telefono = serializers.CharField(max_length=20, required=True, write_only=True)
     vehiculo = serializers.ChoiceField(
         choices=['BICICLETA', 'MOTO', 'AUTO', 'FURGON', 'A_PIE', 'OTRO'],
-        required=True
+        required=True,
+        write_only=True,
     )
 
     class Meta:
@@ -364,7 +365,7 @@ class UserSerializer(serializers.ModelSerializer):
             'is_cliente', 'is_vendedor', 'is_repartidor',
             'roles',
         ]
-        read_only_fields = fields
+        read_only_fields = ['id', 'is_cliente', 'is_vendedor', 'is_repartidor']
 
     def get_roles(self, obj):
         return obj.roles_activos
@@ -433,3 +434,5 @@ class ChangePasswordSerializer(serializers.Serializer):
                 {"new_password": "Las contraseñas nuevas no coinciden."}
             )
         return data
+    
+    

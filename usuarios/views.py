@@ -22,26 +22,26 @@ from .serializers import (
 from .permissions import IsSeller, IsCliente, IsOwnerOrReadOnly
 
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 CustomUser = get_user_model()
 
 
 # ------------------------------------------------------------------
 # 1. TOKEN JWT CON DATOS DEL USUARIO
-# Devuelve el token + datos básicos del usuario en el mismo response.
 # ------------------------------------------------------------------
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        print("=== VALIDATE EJECUTADO ===")
+        data = super().validate(attrs)
+        print("=== USER:", self.user)
+        data['user'] = UserSerializer(self.user).data
+        print("=== DATA KEYS:", list(data.keys()))
+        return data
+
+
 class MyTokenObtainPairView(TokenObtainPairView):
-    """
-    Login — devuelve tokens JWT + datos del usuario.
-    El frontend puede mostrar el nombre y roles del usuario sin
-    hacer una segunda llamada a la API.
-    """
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        if response.status_code == status.HTTP_200_OK:
-            user = CustomUser.objects.get(username=request.data['username'])
-            response.data['user'] = UserSerializer(user).data
-        return response
+    serializer_class = MyTokenObtainPairSerializer
 
 
 # ------------------------------------------------------------------
@@ -302,3 +302,4 @@ class ChangePasswordView(APIView):
                 status=status.HTTP_200_OK
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
