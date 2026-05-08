@@ -1,65 +1,184 @@
 # carritos/serializers.py
 from rest_framework import serializers
-from .models import Carrito, ItemCarrito
+from .models import Carrito, GrupoCarrito, ItemCarrito
 from productos.models import Producto
+from tiendas.models import Tienda
+from usuarios.models import Direccion
 
+
+# ------------------------------------------------------------------
+# 1. ITEM DE CARRITO
+# ------------------------------------------------------------------
 class ItemCarritoSerializer(serializers.ModelSerializer):
-    # Campo de solo lectura para mostrar el nombre del producto
+    # Lectura
     nombre_producto = serializers.CharField(source='producto.nombre', read_only=True)
-    # Campo de escritura para recibir el ID del producto
-    producto_id = serializers.PrimaryKeyRelatedField(
-        queryset=Producto.objects.all(), source='producto', write_only=True
+    imagen_producto = serializers.ImageField(source='producto.imagen', read_only=True)
+    precio_unitario = serializers.DecimalField(max_digits=10, decimal_places=0, read_only=True)
+    subtotal = serializers.DecimalField(max_digits=10, decimal_places=0, read_only=True)
+    stock_suficiente = serializers.ReadOnlyField()
+    precio_actual_efectivo = serializers.DecimalField(
+        max_digits=10, decimal_places=0,
+        read_only=True, source='producto.precio_efectivo'
     )
-    # Campo de solo lectura para mostrar el precio actual del producto (desde el modelo Producto)
-    precio_unitario_actual = serializers.DecimalField(
-        max_digits=10, decimal_places=2, read_only=True, source='producto.precio_efectivo' # Asegúrate que decimal_places coincida
+    precio_actual_tarjeta = serializers.DecimalField(
+        max_digits=10, decimal_places=0,
+        read_only=True, source='producto.precio_tarjeta'
     )
-    # Campo de solo lectura para el precio unitario guardado en el ItemCarrito
-    precio_unitario = serializers.DecimalField(max_digits=10, decimal_places=0, read_only=True) # Asegúrate que decimal_places coincida
 
-    # Campo de solo lectura para el subtotal calculado del ítem
-    subtotal = serializers.DecimalField(max_digits=10, decimal_places=0, read_only=True) # Asegúrate que decimal_places coincida
+    # Escritura
+    producto_id = serializers.PrimaryKeyRelatedField(
+        queryset=Producto.objects.all(),
+        source='producto',
+        write_only=True
+    )
 
     class Meta:
         model = ItemCarrito
         fields = [
-            'id', 'producto_id', 'nombre_producto', 'cantidad', 
-            'precio_unitario', # Precio al que se añadió el producto al carrito
-            'subtotal',        # Subtotal de este ítem (cantidad * precio_unitario)
-            'precio_unitario_actual' # Precio actual del producto en el catálogo
+            'id',
+            'producto_id',
+            'nombre_producto',
+            'imagen_producto',
+            'cantidad',
+            'precio_unitario',
+            'subtotal',
+            'precio_actual_efectivo',
+            'precio_actual_tarjeta',
+            'stock_suficiente',
         ]
-        read_only_fields = ['id', 'nombre_producto', 'precio_unitario', 'subtotal', 'precio_unitario_actual'] 
+        read_only_fields = [
+            'id', 'nombre_producto', 'imagen_producto',
+            'precio_unitario', 'subtotal',
+            'precio_actual_efectivo', 'precio_actual_tarjeta',
+            'stock_suficiente',
+        ]
 
     def validate(self, data):
-        # La validación de cantidad <= 0 se moverá a la vista para manejar la eliminación.
-        # Aquí solo validamos que la cantidad sea positiva para la creación/actualización normal.
         if 'cantidad' in data and data['cantidad'] < 0:
             raise serializers.ValidationError("La cantidad no puede ser negativa.")
         return data
 
-class CarritoSerializer(serializers.ModelSerializer):
-    # Serializador anidado para los ítems del carrito (solo lectura)
+
+# ------------------------------------------------------------------
+# 2. GRUPO DE CARRITO
+# ------------------------------------------------------------------
+class GrupoCarritoSerializer(serializers.ModelSerializer):
     items = ItemCarritoSerializer(many=True, read_only=True)
-    # Propiedades calculadas del carrito (solo lectura)
+
+    # Info de la tienda
+    tienda_id = serializers.IntegerField(source='tienda.id', read_only=True)
+    tienda_nombre = serializers.CharField(source='tienda.nombre', read_only=True)
+    tienda_logo = serializers.ImageField(source='tienda.logo', read_only=True)
+    tienda_whatsapp_url = serializers.CharField(
+        source='tienda.propietario_perfil.whatsapp_url',
+        read_only=True
+    )
+    metodos_pago_tienda = serializers.ListField(
+        source='tienda.metodos_pago_activos',
+        read_only=True
+    )
+
+    # Propiedades calculadas
+    subtotal = serializers.DecimalField(max_digits=10, decimal_places=0, read_only=True)
+    total = serializers.DecimalField(max_digits=10, decimal_places=0, read_only=True)
     total_items = serializers.IntegerField(read_only=True)
     cantidad_total_productos = serializers.IntegerField(read_only=True)
-    subtotal_total = serializers.DecimalField(max_digits=10, decimal_places=0, read_only=True) # Asegúrate que decimal_places coincida
+    hora_entrega_display = serializers.TimeField(read_only=True, allow_null=True)
+    hora_modificada_por_emprendedor = serializers.BooleanField(read_only=True)
 
-    # Campo de solo lectura para mostrar el username del usuario asociado
-    usuario = serializers.CharField(source='usuario.username', read_only=True)
-    
+    # Campos editables
+    metodo_pago = serializers.ChoiceField(
+        choices=GrupoCarrito.METODO_PAGO_CHOICES,
+        required=False
+    )
+    tipo_entrega = serializers.ChoiceField(
+        choices=GrupoCarrito.TIPO_ENTREGA_CHOICES,
+        required=False
+    )
+    hora_sugerida_cliente = serializers.TimeField(required=False, allow_null=True)
+    notas_cliente = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    direccion_entrega = serializers.PrimaryKeyRelatedField(
+        queryset=Direccion.objects.all(),
+        required=False,
+        allow_null=True
+    )
+
+    class Meta:
+        model = GrupoCarrito
+        fields = [
+            'id',
+            'tienda_id', 'tienda_nombre', 'tienda_logo',
+            'tienda_whatsapp_url', 'metodos_pago_tienda',
+            'metodo_pago', 'tipo_entrega',
+            'hora_sugerida_cliente', 'hora_confirmada',
+            'hora_entrega_display', 'hora_modificada_por_emprendedor',
+            'direccion_entrega',
+            'costo_envio', 'notas_cliente',
+            'subtotal', 'total',
+            'total_items', 'cantidad_total_productos',
+            'items',
+            'fecha_creacion', 'fecha_actualizacion',
+        ]
+        read_only_fields = [
+            'id', 'tienda_id', 'tienda_nombre', 'tienda_logo',
+            'tienda_whatsapp_url', 'metodos_pago_tienda',
+            'hora_confirmada', 'hora_entrega_display',
+            'hora_modificada_por_emprendedor',
+            'costo_envio', 'subtotal', 'total',
+            'total_items', 'cantidad_total_productos',
+            'fecha_creacion', 'fecha_actualizacion',
+        ]
+
+
+# ------------------------------------------------------------------
+# 3. CARRITO COMPLETO
+# ------------------------------------------------------------------
+class CarritoSerializer(serializers.ModelSerializer):
+    grupos = GrupoCarritoSerializer(many=True, read_only=True)
+
+    # Propiedades globales
+    total_tiendas = serializers.IntegerField(read_only=True)
+    subtotal_global = serializers.DecimalField(
+        max_digits=10, decimal_places=0, read_only=True
+    )
+    costo_envio_global = serializers.DecimalField(
+        max_digits=10, decimal_places=0, read_only=True
+    )
+    total_global = serializers.DecimalField(
+        max_digits=10, decimal_places=0, read_only=True
+    )
+    esta_vacio = serializers.ReadOnlyField()
+    expirado = serializers.ReadOnlyField()
+    tiene_retiros_simultaneos = serializers.ReadOnlyField()
+
+    # Info del propietario
+    usuario_username = serializers.CharField(
+        source='usuario.username',
+        read_only=True,
+        allow_null=True
+    )
+
     class Meta:
         model = Carrito
         fields = [
-            'id', 'usuario', 'guest_id', 'metodo_pago', 'fecha_creacion', 'fecha_actualizacion',
-            'items', 'total_items', 'cantidad_total_productos', 'subtotal_total'
+            'id',
+            'usuario_username',
+            'guest_id',
+            'fecha_creacion',
+            'fecha_actualizacion',
+            'total_tiendas',
+            'subtotal_global',
+            'costo_envio_global',
+            'total_global',
+            'esta_vacio',
+            'expirado',
+            'tiene_retiros_simultaneos',
+            'grupos',
         ]
-        read_only_fields = ['id', 'fecha_creacion', 'fecha_actualizacion', 'usuario']
-
-    def validate(self, data):
-        # Esta validación es crucial para el modelo de Carrito
-        if data.get('usuario') and data.get('guest_id'):
-            raise serializers.ValidationError("Un carrito no puede tener un usuario asociado y un guest_id al mismo tiempo.")
-        # No es necesario validar 'not data.get('usuario') and not data.get('guest_id')' aquí,
-        # ya que la vista se encarga de crear el carrito con uno u otro.
-        return data
+        read_only_fields = [
+            'id', 'fecha_creacion', 'fecha_actualizacion',
+            'usuario_username', 'guest_id',
+            'total_tiendas', 'subtotal_global',
+            'costo_envio_global', 'total_global',
+            'esta_vacio', 'expirado', 'tiene_retiros_simultaneos',
+        ]

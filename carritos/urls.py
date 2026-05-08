@@ -1,23 +1,30 @@
-# carritos/urls.py (¡Vuelve a esta versión!)
+# carritos/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from rest_framework_nested import routers # Asegúrate de importar esto
+from rest_framework_nested import routers
 
-from .views import CarritoViewSet, ItemCarritoViewSet
+from .views import CarritoViewSet, GrupoCarritoViewSet, ItemCarritoViewSet
 
-# 1. Router principal para el CarritoViewSet
+# Router principal — Carrito
 router = DefaultRouter()
 router.register(r'carritos', CarritoViewSet, basename='carrito')
 
-# 2. Router anidado para el ItemCarritoViewSet
-carritos_router = routers.NestedSimpleRouter(router, r'carritos', lookup='carrito')
-carritos_router.register(r'items', ItemCarritoViewSet, basename='carrito-item')
+# Router anidado — GrupoCarrito dentro de Carrito
+grupos_router = routers.NestedSimpleRouter(router, r'carritos', lookup='carrito')
+grupos_router.register(r'grupos', GrupoCarritoViewSet, basename='carrito-grupo')
+
+# Router anidado — ItemCarrito dentro de GrupoCarrito
+items_router = routers.NestedSimpleRouter(grupos_router, r'grupos', lookup='grupo')
+items_router.register(r'items', ItemCarritoViewSet, basename='carrito-grupo-item')
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('', include(carritos_router.urls)),
-    path('fusionar_carrito/', CarritoViewSet.as_view({'post': 'fusionar_carrito'}), name='fusionar-carrito'),
+    path('', include(grupos_router.urls)),
+    path('', include(items_router.urls)),
+    path(
+        'fusionar_carrito/',
+        CarritoViewSet.as_view({'post': 'fusionar_carrito'}),
+        name='fusionar-carrito'
+    ),
 ]
-
-
 
