@@ -1,11 +1,8 @@
 # plataforma_config/urls.py
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import PlatformSettingViewSet
-
-router = DefaultRouter()
-router.register(r'configuracion', PlatformSettingViewSet)
-
+from django.urls import path
+from .views import PlatformSettingView
+ 
 urlpatterns = [
-    path('', include(router.urls)),
+    path('configuracion/', PlatformSettingView.as_view(), name='configuracion'),
 ]
+ 
