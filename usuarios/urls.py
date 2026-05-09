@@ -11,6 +11,8 @@ from .views import (
     SellerRegistrationView,
     RepartidorRegistrationView,
     ChangePasswordView,
+    AgregarRolVendedorView,
+    AgregarRolRepartidorView,
 )
 
 router = DefaultRouter()
@@ -30,6 +32,10 @@ urlpatterns = [
 
     # --- Cuenta ---
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
+
+    # --- Agregar roles a usuario existente ---
+    path('agregar-rol-vendedor/', AgregarRolVendedorView.as_view(), name='agregar-rol-vendedor'),
+    path('agregar-rol-repartidor/', AgregarRolRepartidorView.as_view(), name='agregar-rol-repartidor'),
 ]
 
 

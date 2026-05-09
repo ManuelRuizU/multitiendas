@@ -163,7 +163,7 @@ class ClienteAdmin(admin.ModelAdmin):
 # ------------------------------------------------------------------
 @admin.register(Direccion)
 class DireccionAdmin(admin.ModelAdmin):
-    list_display = ('etiqueta', 'calle', 'numero', 'comuna', 'ciudad', 'cliente', 'principal', 'validada')
+    list_display = ('id', 'etiqueta', 'calle', 'numero', 'comuna', 'ciudad', 'cliente', 'principal', 'validada')
     list_filter = ('principal', 'validada', 'comuna')
     search_fields = ('calle', 'cliente__email', 'cliente__user__username')
     raw_id_fields = ('cliente',)

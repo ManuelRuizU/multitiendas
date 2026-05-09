@@ -204,6 +204,36 @@ class Order(models.Model):
     )
 
     # ------------------------------------------------------------------
+    # REPARTIDOR Y LOGÍSTICA
+    # ------------------------------------------------------------------
+    MODO_ASIGNACION_CHOICES = [
+        ('LIBRE',   'Libre — cualquier repartidor puede tomarlo'),
+        ('CERRADO', 'Cerrado — asignado a un repartidor específico'),
+    ]
+
+    hora_entrega_est = models.DateTimeField(
+        "Hora de entrega estimada",
+        null=True,
+        blank=True,
+        help_text="Estimación de cuándo llegará el pedido al cliente."
+    )
+    repartidor = models.ForeignKey(
+        'repartidores.Repartidor',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pedidos_asignados',
+        verbose_name="Repartidor asignado"
+    )
+    modo_asignacion = models.CharField(
+        "Modo de asignación",
+        max_length=10,
+        choices=MODO_ASIGNACION_CHOICES,
+        default='LIBRE',
+        help_text="LIBRE: cualquier repartidor puede tomarlo. CERRADO: asignado a uno específico."
+    )
+
+    # ------------------------------------------------------------------
     # META
     # ------------------------------------------------------------------
     class Meta:
@@ -263,6 +293,16 @@ class Order(models.Model):
     @property
     def es_reparto(self):
         return self.tipo_entrega == 'REPARTO'
+
+    @property
+    def disponible_para_tomar(self):
+        """True si un repartidor en modo LIBRE puede tomar este pedido."""
+        return (
+            self.tipo_entrega == 'REPARTO' and
+            self.modo_asignacion == 'LIBRE' and
+            self.status == 'CONFIRMED' and
+            self.repartidor is None
+        )
 
     @property
     def loyverse_listo(self):

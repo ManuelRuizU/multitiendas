@@ -347,7 +347,7 @@ class DireccionSerializer(serializers.ModelSerializer):
             'latitud', 'longitud', 'validada',
             'tipo_direccion', 'principal',
         ]
-        read_only_fields = ['validada', 'latitud', 'longitud']
+        read_only_fields = ['validada']
 
 
 # ------------------------------------------------------------------

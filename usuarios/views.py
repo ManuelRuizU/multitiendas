@@ -302,4 +302,107 @@ class ChangePasswordView(APIView):
                 status=status.HTTP_200_OK
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ------------------------------------------------------------------
+# 11. AGREGAR ROL DE VENDEDOR A USUARIO EXISTENTE
+# ------------------------------------------------------------------
+class AgregarRolVendedorView(APIView):
+    """
+    Activa el rol de vendedor en el usuario autenticado.
+    Crea el SellerProfile si no existe.
+    POST /api/usuarios/agregar-rol-vendedor/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if hasattr(user, 'seller_profile'):
+            return Response(
+                {"detail": "Ya tienes el rol de vendedor activado."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from .serializers import SellerProfileSerializer
+        import re
+
+        required = ['whatsapp', 'rut', 'razon_social', 'giro', 'direccion_fiscal']
+        errors = {f: "Este campo es requerido." for f in required if not request.data.get(f)}
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+        whatsapp = request.data['whatsapp']
+        if not re.match(r'^\+56[2-9]\d{8}$', whatsapp):
+            return Response(
+                {"whatsapp": "Formato inválido. Usa +56912345678"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if SellerProfile.objects.filter(rut=request.data['rut']).exists():
+            return Response(
+                {"rut": "Este RUT ya está registrado en la plataforma."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        SellerProfile.objects.create(
+            user=user,
+            telefono=request.data.get('telefono'),
+            whatsapp=whatsapp,
+            rut=request.data['rut'],
+            razon_social=request.data['razon_social'],
+            giro=request.data['giro'],
+            direccion_fiscal=request.data['direccion_fiscal'],
+        )
+
+        return Response(
+            {
+                "detail": "Rol de vendedor activado correctamente.",
+                "user": UserSerializer(user).data,
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+# ------------------------------------------------------------------
+# 12. AGREGAR ROL DE REPARTIDOR A USUARIO EXISTENTE
+# ------------------------------------------------------------------
+class AgregarRolRepartidorView(APIView):
+    """
+    Activa el rol de repartidor en el usuario autenticado.
+    Crea el Repartidor si no existe.
+    POST /api/usuarios/agregar-rol-repartidor/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if hasattr(user, 'repartidor_profile'):
+            return Response(
+                {"detail": "Ya tienes el rol de repartidor activado."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        telefono = request.data.get('telefono')
+        vehiculo = request.data.get('vehiculo')
+        vehiculos_validos = ['BICICLETA', 'MOTO', 'AUTO', 'FURGON', 'A_PIE', 'OTRO']
+
+        errors = {}
+        if not telefono:
+            errors['telefono'] = "Este campo es requerido."
+        if not vehiculo:
+            errors['vehiculo'] = "Este campo es requerido."
+        elif vehiculo not in vehiculos_validos:
+            errors['vehiculo'] = f"Opciones válidas: {vehiculos_validos}"
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+        from repartidores.models import Repartidor
+        Repartidor.objects.create(user=user, telefono=telefono, vehiculo=vehiculo)
+
+        return Response(
+            {
+                "detail": "Rol de repartidor activado correctamente.",
+                "user": UserSerializer(user).data,
+            },
+            status=status.HTTP_201_CREATED
+        )
     
