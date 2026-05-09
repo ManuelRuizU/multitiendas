@@ -151,3 +151,37 @@ class PlatformSetting(models.Model):
     class Meta:
         verbose_name = "Configuración de Plataforma"
         verbose_name_plural = "Configuración de Plataforma"
+
+
+# ------------------------------------------------------------------
+# CATEGORÍAS DE TIENDA (para el orbital del frontend)
+# Gestionadas desde el admin — el frontend las consume vía API.
+# ------------------------------------------------------------------
+class CategoriaTienda(models.Model):
+
+    TIPO_NEGOCIO_CHOICES = [
+        ('COMIDA',    'Comida y Bebidas'),
+        ('RETAIL',    'Tienda / Retail'),
+        ('SERVICIOS', 'Servicios'),
+        ('OTRO',      'Otro'),
+    ]
+
+    nombre = models.CharField("Nombre", max_length=100, unique=True)
+    emoji  = models.CharField("Emoji",  max_length=20)
+    tipo_negocio = models.CharField(
+        "Tipo de negocio",
+        max_length=20,
+        choices=TIPO_NEGOCIO_CHOICES,
+        default='COMIDA',
+        help_text="Filtra las tiendas de este tipo al seleccionar la categoría."
+    )
+    orden  = models.PositiveIntegerField("Orden", default=0)
+    activo = models.BooleanField("Activo", default=True)
+
+    class Meta:
+        ordering = ['orden', 'nombre']
+        verbose_name = "Categoría"
+        verbose_name_plural = "Categorías"
+
+    def __str__(self):
+        return f"{self.emoji} {self.nombre}"

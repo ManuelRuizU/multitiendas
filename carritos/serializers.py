@@ -25,6 +25,9 @@ class ItemCarritoSerializer(serializers.ModelSerializer):
         read_only=True, source='producto.precio_tarjeta'
     )
 
+    # Lectura: expone el ID del producto para que el frontend pueda actualizar/eliminar
+    producto = serializers.IntegerField(source='producto.id', read_only=True)
+
     # Escritura
     producto_id = serializers.PrimaryKeyRelatedField(
         queryset=Producto.objects.all(),
@@ -36,6 +39,7 @@ class ItemCarritoSerializer(serializers.ModelSerializer):
         model = ItemCarrito
         fields = [
             'id',
+            'producto',
             'producto_id',
             'nombre_producto',
             'imagen_producto',

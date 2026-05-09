@@ -28,13 +28,14 @@ class TiendaViewSet(viewsets.ModelViewSet):
 
     Acceso vendedor:
     - POST /tiendas/ → crear tienda (requiere IsSeller)
-    - PUT/PATCH /tiendas/{id}/ → editar su tienda
-    - DELETE /tiendas/{id}/ → eliminar su tienda
+    - PUT/PATCH /tiendas/{slug}/ → editar su tienda
+    - DELETE /tiendas/{slug}/ → eliminar su tienda
 
     Acceso especial:
-    - GET /tiendas/{id}/calcular_envio/?lat=X&lng=Y → costo de envío
+    - GET /tiendas/{slug}/calcular_envio/?lat=X&lng=Y → costo de envío
     - GET /tiendas/mis_tiendas/ → tiendas del vendedor autenticado
     """
+    lookup_field = 'slug'
 
     def get_serializer_class(self):
         # El panel del vendedor usa el serializer completo
@@ -52,12 +53,11 @@ class TiendaViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        # Staff ve todo
-        if user.is_authenticated and user.is_staff:
-            return Tienda.objects.all()
-        # Vendedor autenticado ve todas las tiendas activas
-        # (también puede querer comprar en otra tienda)
-        return Tienda.objects.filter(activo=True)
+        qs = Tienda.objects.all() if (user.is_authenticated and user.is_staff) else Tienda.objects.filter(activo=True)
+        tipo = self.request.query_params.get('tipo_negocio')
+        if tipo:
+            qs = qs.filter(tipo_negocio=tipo)
+        return qs
 
     def perform_create(self, serializer):
         if not hasattr(self.request.user, 'seller_profile'):

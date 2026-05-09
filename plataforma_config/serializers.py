@@ -1,6 +1,6 @@
 # plataforma_config/serializers.py
 from rest_framework import serializers
-from .models import PlatformSetting
+from .models import PlatformSetting, CategoriaTienda
 
 
 class PlatformSettingPublicSerializer(serializers.ModelSerializer):
@@ -81,3 +81,10 @@ class PlatformSettingAdminSerializer(serializers.ModelSerializer):
                 f"Color HEX inválido. Usa formato #RRGGBB. Ej: #33C1FF"
             )
         return value
+
+
+class CategoriaTiendaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = CategoriaTienda
+        fields = ['id', 'nombre', 'emoji', 'tipo_negocio', 'orden']
+        read_only_fields = fields
