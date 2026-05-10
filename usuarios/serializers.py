@@ -1,10 +1,22 @@
 # usuarios/serializers.py
+import re
+import uuid
+
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser as User, BuyerProfile, SellerProfile, Cliente, Direccion
+
+
+def _generate_username(email):
+    """Genera un username único derivado del email."""
+    base = re.sub(r'[^a-zA-Z0-9]', '', email.split('@')[0]).lower()[:20] or 'usuario'
+    username = base
+    while User.objects.filter(username=username).exists():
+        username = f"{base}_{uuid.uuid4().hex[:6]}"
+    return username
 
 
 # ------------------------------------------------------------------
@@ -37,19 +49,27 @@ class ClienteRegistrationSerializer(serializers.ModelSerializer):
     password2 = serializers.CharField(write_only=True, required=True)
     tokens = serializers.SerializerMethodField(read_only=True)
 
-    # Campos opcionales del perfil
-    telefono = serializers.CharField(max_length=20, required=False, allow_blank=True, write_only=True)
+    # Campos del perfil — username se genera automáticamente
+    telefono         = serializers.CharField(max_length=20, required=True, write_only=True)
+    apellido_materno = serializers.CharField(max_length=150, required=True, write_only=True)
 
     class Meta:
         model = User
         fields = [
-            'username', 'email', 'password', 'password2',
-            'first_name', 'last_name', 'telefono',
-            'tokens',
+            'email', 'password', 'password2',
+            'first_name', 'last_name', 'apellido_materno',
+            'telefono', 'tokens',
         ]
 
     def get_tokens(self, obj):
         return get_tokens_for_user(obj)
+
+    def validate_telefono(self, value):
+        if not re.match(r'^\+569\d{8}$', value):
+            raise serializers.ValidationError(
+                "Ingresa un celular chileno válido. Ej: +56912345678"
+            )
+        return value
 
     def validate(self, data):
         if data['password'] != data['password2']:
@@ -64,29 +84,29 @@ class ClienteRegistrationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data.pop('password2')
-        telefono = validated_data.pop('telefono', None)
+        telefono         = validated_data.pop('telefono')
+        apellido_materno = validated_data.pop('apellido_materno')
+
+        username = _generate_username(validated_data['email'])
 
         with transaction.atomic():
-            # Crear usuario (is_cliente=True por defecto)
             user = User.objects.create_user(
-                username=validated_data['username'],
+                username=username,
                 email=validated_data['email'],
                 password=validated_data['password'],
                 first_name=validated_data.get('first_name', ''),
                 last_name=validated_data.get('last_name', ''),
             )
 
-            # BuyerProfile se crea automáticamente via señal
-            # pero actualizamos el teléfono si se proporcionó
-            if telefono and hasattr(user, 'buyer_profile'):
+            if hasattr(user, 'buyer_profile'):
                 user.buyer_profile.telefono = telefono
                 user.buyer_profile.save(update_fields=['telefono'])
 
-            # Crear Cliente para el flujo de pedidos
             Cliente.objects.create(
                 user=user,
                 first_name=user.first_name,
                 last_name=user.last_name,
+                apellido_materno=apellido_materno,
                 email=user.email,
                 telefono=telefono,
             )
@@ -410,7 +430,7 @@ class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cliente
         fields = [
-            'id', 'user', 'first_name', 'last_name',
+            'id', 'user', 'first_name', 'last_name', 'apellido_materno',
             'email', 'telefono', 'is_guest', 'guest_uuid',
             'direcciones',
         ]

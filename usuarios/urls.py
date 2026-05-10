@@ -13,6 +13,7 @@ from .views import (
     ChangePasswordView,
     AgregarRolVendedorView,
     AgregarRolRepartidorView,
+    CheckEmailView,
 )
 
 router = DefaultRouter()
@@ -31,6 +32,7 @@ urlpatterns = [
     path('register/repartidor/', RepartidorRegistrationView.as_view(), name='register-repartidor'),
 
     # --- Cuenta ---
+    path('check-email/',     CheckEmailView.as_view(),     name='check-email'),
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
 
     # --- Agregar roles a usuario existente ---

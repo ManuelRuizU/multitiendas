@@ -271,7 +271,8 @@ class Cliente(models.Model):
         verbose_name="Usuario registrado"
     )
     first_name = models.CharField("Nombre", max_length=150, blank=True, null=True)
-    last_name = models.CharField("Apellido", max_length=150, blank=True, null=True)
+    last_name = models.CharField("Apellido paterno", max_length=150, blank=True, null=True)
+    apellido_materno = models.CharField("Apellido materno", max_length=150, blank=True, null=True)
     email = models.EmailField(blank=True, null=True)
     telefono = models.CharField(max_length=30, blank=True, null=True)
 
@@ -311,7 +312,7 @@ class Cliente(models.Model):
         # Registrado → guest_uuid debe ser NULL (el default lo rellena, hay que limpiarlo)
         if self.user is not None:
             self.guest_uuid = None
-        for field in ['email', 'first_name', 'last_name', 'telefono']:
+        for field in ['email', 'first_name', 'last_name', 'apellido_materno', 'telefono']:
             if getattr(self, field) == '':
                 setattr(self, field, None)
 

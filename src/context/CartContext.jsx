@@ -89,13 +89,19 @@ export function CartProvider({ children }) {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const resetCart = useCallback(() => {
+    setCart(null)
+    setItemCount(0)
+    setIsCartOpen(false)
+  }, [])
+
   useEffect(() => { fetchCart() }, [fetchCart])
 
   return (
     <CartContext.Provider value={{
       cart, itemCount,
       isCartOpen, openCart, closeCart,
-      fetchCart, addItem, updateItem, removeItem, clearCart, mergeGuestCart,
+      fetchCart, addItem, updateItem, removeItem, clearCart, mergeGuestCart, resetCart,
     }}>
       {children}
     </CartContext.Provider>

@@ -28,6 +28,28 @@ CustomUser = get_user_model()
 
 
 # ------------------------------------------------------------------
+# 0. CHECK EMAIL
+# ------------------------------------------------------------------
+class CheckEmailView(APIView):
+    """
+    POST /api/usuarios/check-email/
+    Body: {"email": "..."}
+    Response: {"exists": true/false}
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email', '').strip().lower()
+        if not email:
+            return Response({'error': 'Email requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = CustomUser.objects.get(email__iexact=email)
+            return Response({'exists': True, 'username': user.username})
+        except CustomUser.DoesNotExist:
+            return Response({'exists': False})
+
+
+# ------------------------------------------------------------------
 # 1. TOKEN JWT CON DATOS DEL USUARIO
 # ------------------------------------------------------------------
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
