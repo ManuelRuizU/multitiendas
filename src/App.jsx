@@ -15,6 +15,7 @@ import RegistroVendedorPage from './pages/RegistroVendedorPage'
 import PerfilPage from './pages/PerfilPage'
 import VendedorPanelPage from './pages/VendedorPanelPage'
 import VendedorPedidosPage from './pages/VendedorPedidosPage'
+import MisPedidosPage from './pages/MisPedidosPage'
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/perfil"                element={<PerfilPage />} />
           <Route path="/vendedor/panel"        element={<VendedorPanelPage />} />
           <Route path="/vendedor/pedidos"      element={<VendedorPedidosPage />} />
+          <Route path="/mis-pedidos"           element={<MisPedidosPage />} />
         </Routes>
       </CartProvider>
     </AuthProvider>
