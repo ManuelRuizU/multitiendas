@@ -14,6 +14,7 @@ import RegisterPage from './pages/RegisterPage'
 import RegistroVendedorPage from './pages/RegistroVendedorPage'
 import PerfilPage from './pages/PerfilPage'
 import VendedorPanelPage from './pages/VendedorPanelPage'
+import VendedorPedidosPage from './pages/VendedorPedidosPage'
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/registro-vendedor"     element={<RegistroVendedorPage />} />
           <Route path="/perfil"                element={<PerfilPage />} />
           <Route path="/vendedor/panel"        element={<VendedorPanelPage />} />
+          <Route path="/vendedor/pedidos"      element={<VendedorPedidosPage />} />
         </Routes>
       </CartProvider>
     </AuthProvider>

@@ -63,7 +63,8 @@ class TiendaPublicaSerializer(serializers.ModelSerializer):
         source='propietario_perfil.whatsapp_url'
     )
     radios_envio = RadioEnvioSerializer(many=True, read_only=True)
-    cuadrantes = CuadranteEnvioPublicoSerializer(many=True, read_only=True)
+    cuadrantes   = CuadranteEnvioPublicoSerializer(many=True, read_only=True)
+    esta_abierto = serializers.ReadOnlyField()
 
     class Meta:
         model = Tienda
@@ -76,6 +77,11 @@ class TiendaPublicaSerializer(serializers.ModelSerializer):
             'metodos_pago', 'whatsapp_url',
             'vendedor_username',
             'radios_envio', 'cuadrantes',
+            # Horario
+            'esta_abierto', 'acepta_pedidos_programados',
+            'hora_apertura', 'hora_cierre',
+            'abre_lunes', 'abre_martes', 'abre_miercoles', 'abre_jueves',
+            'abre_viernes', 'abre_sabado', 'abre_domingo',
         ]
         read_only_fields = fields
 

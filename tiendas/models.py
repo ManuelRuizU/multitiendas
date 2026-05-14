@@ -88,6 +88,23 @@ class Tienda(models.Model):
     url = models.URLField(blank=True, null=True)
 
     horario_atencion = models.CharField(max_length=255, blank=True, null=True)
+
+    # --- Horario estructurado ---
+    hora_apertura = models.TimeField("Hora de apertura", null=True, blank=True)
+    hora_cierre   = models.TimeField("Hora de cierre",   null=True, blank=True)
+    abre_lunes     = models.BooleanField("Lunes",     default=True)
+    abre_martes    = models.BooleanField("Martes",    default=True)
+    abre_miercoles = models.BooleanField("Miércoles", default=True)
+    abre_jueves    = models.BooleanField("Jueves",    default=True)
+    abre_viernes   = models.BooleanField("Viernes",   default=True)
+    abre_sabado    = models.BooleanField("Sábado",    default=False)
+    abre_domingo   = models.BooleanField("Domingo",   default=False)
+    acepta_pedidos_programados = models.BooleanField(
+        "Acepta pedidos programados",
+        default=False,
+        help_text="Permite que los clientes programen pedidos fuera del horario de atención."
+    )
+
     logo = models.ImageField(upload_to="logos_tiendas/", blank=True, null=True)
 
     fecha_creacion = models.DateTimeField(auto_now_add=True)
@@ -357,6 +374,28 @@ class Tienda(models.Model):
     # ------------------------------------------------------------------
     # PROPIEDADES ÚTILES
     # ------------------------------------------------------------------
+
+    @property
+    def esta_abierto(self):
+        """
+        True si la tienda está abierta ahora según su horario configurado.
+        Si no tiene hora_apertura/hora_cierre configurados devuelve True (sin restricción).
+        """
+        from django.utils import timezone as tz
+        now = tz.localtime()
+        days = [
+            'abre_lunes', 'abre_martes', 'abre_miercoles', 'abre_jueves',
+            'abre_viernes', 'abre_sabado', 'abre_domingo',
+        ]
+        if not getattr(self, days[now.weekday()]):
+            return False
+        if not self.hora_apertura or not self.hora_cierre:
+            return True
+        t = now.time().replace(second=0, microsecond=0)
+        if self.hora_cierre >= self.hora_apertura:
+            return self.hora_apertura <= t <= self.hora_cierre
+        # Horario nocturno (ej. 22:00 → 02:00)
+        return t >= self.hora_apertura or t <= self.hora_cierre
 
     @property
     def metodos_pago_activos(self):

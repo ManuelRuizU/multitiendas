@@ -46,8 +46,19 @@ class TiendaAdmin(admin.ModelAdmin):
             'fields': ('propietario_perfil', 'nombre', 'slug', 'descripcion', 'tipo_negocio', 'activo')
         }),
         ('Contacto', {
-            'fields': ('telefono', 'email', 'url', 'horario_atencion')
-        }),
+    'fields': ('telefono', 'email', 'url')
+}),
+('Horarios de Atención', {
+    'fields': (
+        'horario_atencion',
+        'hora_apertura', 'hora_cierre',
+        'abre_lunes', 'abre_martes', 'abre_miercoles',
+        'abre_jueves', 'abre_viernes', 'abre_sabado', 'abre_domingo',
+        'acepta_pedidos_programados',
+    ),
+    'description': 'Si no configuras horarios la tienda aparecerá siempre como abierta.'
+}),
+        
         ('Ubicación', {
             'fields': ('direccion', 'latitud', 'longitud')
         }),
@@ -145,3 +156,4 @@ class CuadranteEnvioAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+    

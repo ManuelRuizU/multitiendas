@@ -73,17 +73,15 @@ class OrderViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_staff:
             return Order.objects.all()
+        from django.db.models import Q
+        q = Q(pk__in=[])
         if hasattr(user, 'cliente_data'):
-            return Order.objects.filter(cliente=user.cliente_data)
+            q |= Q(cliente=user.cliente_data)
         if hasattr(user, 'seller_profile'):
-            return Order.objects.filter(
-                tienda__propietario_perfil=user.seller_profile
-            )
+            q |= Q(tienda__propietario_perfil=user.seller_profile)
         if hasattr(user, 'repartidor_profile'):
-            return Order.objects.filter(
-                repartidor=user.repartidor_profile
-            )
-        return Order.objects.none()
+            q |= Q(repartidor=user.repartidor_profile)
+        return Order.objects.filter(q)
 
     # ------------------------------------------------------------------
     # CHECKOUT MULTITIENDA

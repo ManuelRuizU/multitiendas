@@ -110,51 +110,81 @@ export default function TiendasPage() {
         {/* ── Tiendas grid ── */}
         {!loading && !error && tiendas.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tiendas.map((tienda) => (
-              <button
-                key={tienda.id}
-                onClick={() => navigate(`/tienda/${tienda.slug}`)}
-                aria-label={`Ver tienda ${tienda.nombre}${tienda.horario_atencion ? `, ${tienda.horario_atencion}` : ''}`}
-                className="group bg-white/5 border border-white/10 hover:border-orange-500/30 hover:bg-white/[0.08] rounded-2xl overflow-hidden text-left transition-all duration-200 hover:-translate-y-0.5 w-full"
-              >
-                {/* Thumbnail */}
-                <div
-                  className="h-36 flex items-center justify-center overflow-hidden"
-                  style={{ background: 'linear-gradient(135deg,rgba(249,115,22,.09),rgba(251,191,36,.04))' }}
+            {tiendas.map((tienda) => {
+              // Solo mostrar badge si la tienda tiene horario configurado
+              const tieneHorario = !!tienda.hora_apertura
+              const abierta      = tienda.esta_abierto
+              return (
+                <button
+                  key={tienda.id}
+                  onClick={() => navigate(`/tienda/${tienda.slug}`)}
+                  aria-label={`Ver tienda ${tienda.nombre}${tieneHorario ? (abierta ? ', Abierta' : ', Cerrada') : ''}`}
+                  className="group bg-white/5 border border-white/10 hover:border-orange-500/30 hover:bg-white/[0.08] rounded-2xl overflow-hidden text-left transition-all duration-200 hover:-translate-y-0.5 w-full"
                 >
-                  {tienda.logo
-                    ? <img src={tienda.logo} alt={tienda.nombre} className="w-full h-full object-cover" />
-                    : <span aria-hidden="true" className="text-5xl">{TIPO_EMOJI[tienda.tipo_negocio] ?? '🏪'}</span>
-                  }
-                </div>
+                  {/* Thumbnail */}
+                  <div
+                    className="relative h-36 flex items-center justify-center overflow-hidden"
+                    style={{ background: 'linear-gradient(135deg,rgba(249,115,22,.09),rgba(251,191,36,.04))' }}
+                  >
+                    {tienda.logo
+                      ? <img src={tienda.logo} alt={tienda.nombre} className="w-full h-full object-cover" />
+                      : <span aria-hidden="true" className="text-5xl">{TIPO_EMOJI[tienda.tipo_negocio] ?? '🏪'}</span>
+                    }
+                    {/* Badge Abierto / Cerrado */}
+                    {tieneHorario && (
+                      <span
+                        aria-hidden="true"
+                        className={[
+                          'absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full border',
+                          abierta
+                            ? 'bg-green-500/20  text-green-400  border-green-500/30'
+                            : tienda.acepta_pedidos_programados
+                              ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                              : 'bg-red-500/20    text-red-400    border-red-500/30',
+                        ].join(' ')}
+                      >
+                        {abierta ? 'Abierto' : tienda.acepta_pedidos_programados ? 'Programa tu pedido' : 'Cerrado'}
+                      </span>
+                    )}
+                    {/* Overlay oscuro si cerrado y no programable */}
+                    {tieneHorario && !abierta && !tienda.acepta_pedidos_programados && (
+                      <div aria-hidden="true" className="absolute inset-0 bg-black/40" />
+                    )}
+                  </div>
 
-                {/* Info */}
-                <div className="p-4">
-                  <h2 className="font-semibold text-white text-sm leading-snug group-hover:text-orange-400 transition-colors">
-                    {tienda.nombre}
-                  </h2>
-                  {tienda.descripcion && (
-                    <p className="text-xs text-white/40 mt-1 line-clamp-2 leading-relaxed">
-                      {tienda.descripcion}
-                    </p>
-                  )}
-                  {tienda.horario_atencion && (
-                    <p className="text-xs text-white/30 mt-2">
-                      <span aria-hidden="true">🕐</span> {tienda.horario_atencion}
-                    </p>
-                  )}
-                  {tienda.metodos_pago?.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-3" aria-label="Métodos de pago">
-                      {tienda.metodos_pago.map((m) => (
-                        <span key={m} className="text-[10px] bg-white/10 text-white/50 px-2 py-0.5 rounded-full">
-                          {m}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </button>
-            ))}
+                  {/* Info */}
+                  <div className="p-4">
+                    <h2 className={[
+                      'font-semibold text-sm leading-snug transition-colors',
+                      tieneHorario && !abierta && !tienda.acepta_pedidos_programados
+                        ? 'text-white/40'
+                        : 'text-white group-hover:text-orange-400',
+                    ].join(' ')}>
+                      {tienda.nombre}
+                    </h2>
+                    {tienda.descripcion && (
+                      <p className="text-xs text-white/40 mt-1 line-clamp-2 leading-relaxed">
+                        {tienda.descripcion}
+                      </p>
+                    )}
+                    {tienda.horario_atencion && (
+                      <p className="text-xs text-white/30 mt-2">
+                        <span aria-hidden="true">🕐</span> {tienda.horario_atencion}
+                      </p>
+                    )}
+                    {tienda.metodos_pago?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-3" aria-label="Métodos de pago">
+                        {tienda.metodos_pago.map((m) => (
+                          <span key={m} className="text-[10px] bg-white/10 text-white/50 px-2 py-0.5 rounded-full">
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
           </div>
         )}
 

@@ -28,7 +28,7 @@ export default function VendedorPanelPage() {
   }, [user, authLoading, navigate])
 
   useEffect(() => {
-    api.get('tiendas/tiendas/mis_tiendas/')
+    api.get('tiendas/mis_tiendas/')
       .then(({ data }) => {
         setTiendas(Array.isArray(data) ? data : (data.results ?? []))
       })

@@ -54,6 +54,7 @@ class OrderSerializer(serializers.ModelSerializer):
         read_only=True
     )
     cliente_nombre = serializers.SerializerMethodField()
+    cliente_telefono = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     tipo_entrega_display = serializers.CharField(source='get_tipo_entrega_display', read_only=True)
     metodo_pago_display = serializers.CharField(source='get_metodo_pago_display', read_only=True)
@@ -67,7 +68,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'tipo_entrega', 'tipo_entrega_display',
             'metodo_pago', 'metodo_pago_display',
             'tienda', 'tienda_nombre', 'tienda_whatsapp',
-            'cliente', 'cliente_nombre',
+            'cliente', 'cliente_nombre', 'cliente_telefono',
             'delivery_address',
             'subtotal_amount', 'delivery_cost', 'total_amount',
             'customer_notes', 'tienda_notes',
@@ -87,6 +88,11 @@ class OrderSerializer(serializers.ModelSerializer):
             return obj.cliente.user.get_full_name() or obj.cliente.user.username
         nombre = f"{obj.cliente.first_name or ''} {obj.cliente.last_name or ''}".strip()
         return nombre or obj.cliente.email or "Invitado"
+
+    def get_cliente_telefono(self, obj):
+        if not obj.cliente:
+            return None
+        return obj.cliente.telefono or None
 
 
 # ------------------------------------------------------------------

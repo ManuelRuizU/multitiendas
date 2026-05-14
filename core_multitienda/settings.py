@@ -43,6 +43,7 @@ ALLOWED_HOSTS = [
     'DESKTOP-228SR5A',
     'mi_tienda_de_prueba.127.0.0.1.xip.io',
     'mi_tienda_de_prueba.localhost.xip.io',
+    '192.168.50.183',
 ]
 
 # Dominio principal de la plataforma para manejo de subdominios.

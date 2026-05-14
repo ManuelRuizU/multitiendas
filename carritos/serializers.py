@@ -70,17 +70,21 @@ class GrupoCarritoSerializer(serializers.ModelSerializer):
     items = ItemCarritoSerializer(many=True, read_only=True)
 
     # Info de la tienda
-    tienda_id = serializers.IntegerField(source='tienda.id', read_only=True)
-    tienda_nombre = serializers.CharField(source='tienda.nombre', read_only=True)
-    tienda_logo = serializers.ImageField(source='tienda.logo', read_only=True)
+    tienda_id           = serializers.IntegerField(source='tienda.id',     read_only=True)
+    tienda_nombre       = serializers.CharField(source='tienda.nombre',    read_only=True)
+    tienda_logo         = serializers.ImageField(source='tienda.logo',     read_only=True)
     tienda_whatsapp_url = serializers.CharField(
-        source='tienda.propietario_perfil.whatsapp_url',
-        read_only=True
+        source='tienda.propietario_perfil.whatsapp_url', read_only=True
     )
     metodos_pago_tienda = serializers.ListField(
-        source='tienda.metodos_pago_activos',
-        read_only=True
+        source='tienda.metodos_pago_activos', read_only=True
     )
+
+    # Horario de la tienda (para validación en checkout)
+    tienda_esta_abierta         = serializers.ReadOnlyField(source='tienda.esta_abierto')
+    tienda_acepta_programados   = serializers.BooleanField(source='tienda.acepta_pedidos_programados', read_only=True)
+    tienda_hora_apertura        = serializers.TimeField(source='tienda.hora_apertura', read_only=True, allow_null=True)
+    tienda_hora_cierre          = serializers.TimeField(source='tienda.hora_cierre',   read_only=True, allow_null=True)
 
     # Propiedades calculadas
     subtotal = serializers.DecimalField(max_digits=10, decimal_places=0, read_only=True)
@@ -113,6 +117,8 @@ class GrupoCarritoSerializer(serializers.ModelSerializer):
             'id',
             'tienda_id', 'tienda_nombre', 'tienda_logo',
             'tienda_whatsapp_url', 'metodos_pago_tienda',
+            'tienda_esta_abierta', 'tienda_acepta_programados',
+            'tienda_hora_apertura', 'tienda_hora_cierre',
             'metodo_pago', 'tipo_entrega',
             'hora_sugerida_cliente', 'hora_confirmada',
             'hora_entrega_display', 'hora_modificada_por_emprendedor',
@@ -126,6 +132,8 @@ class GrupoCarritoSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'tienda_id', 'tienda_nombre', 'tienda_logo',
             'tienda_whatsapp_url', 'metodos_pago_tienda',
+            'tienda_esta_abierta', 'tienda_acepta_programados',
+            'tienda_hora_apertura', 'tienda_hora_cierre',
             'hora_confirmada', 'hora_entrega_display',
             'hora_modificada_por_emprendedor',
             'costo_envio', 'subtotal', 'total',
