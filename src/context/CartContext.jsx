@@ -25,6 +25,17 @@ export function CartProvider({ children }) {
   const [itemCount, setItemCount] = useState(0)
   const [isCartOpen, setIsCartOpen] = useState(false)
 
+  const [pendingWaOrders, setPendingWaOrders] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('pendingWaOrders') ?? 'null') ?? [] }
+    catch { return [] }
+  })
+
+  const savePendingOrders = useCallback((orders) => {
+    setPendingWaOrders(orders)
+    if (orders.length === 0) localStorage.removeItem('pendingWaOrders')
+    else localStorage.setItem('pendingWaOrders', JSON.stringify(orders))
+  }, [])
+
   const openCart  = useCallback(() => setIsCartOpen(true),  [])
   const closeCart = useCallback(() => setIsCartOpen(false), [])
 
@@ -102,6 +113,7 @@ export function CartProvider({ children }) {
       cart, itemCount,
       isCartOpen, openCart, closeCart,
       fetchCart, addItem, updateItem, removeItem, clearCart, mergeGuestCart, resetCart,
+      pendingWaOrders, savePendingOrders,
     }}>
       {children}
     </CartContext.Provider>

@@ -76,6 +76,9 @@ class GrupoCarritoSerializer(serializers.ModelSerializer):
     tienda_whatsapp_url = serializers.CharField(
         source='tienda.propietario_perfil.whatsapp_url', read_only=True
     )
+    tienda_tipo_negocio = serializers.CharField(
+        source='tienda.tipo_negocio', read_only=True
+    )
     metodos_pago_tienda = serializers.ListField(
         source='tienda.metodos_pago_activos', read_only=True
     )
@@ -116,7 +119,7 @@ class GrupoCarritoSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'tienda_id', 'tienda_nombre', 'tienda_logo',
-            'tienda_whatsapp_url', 'metodos_pago_tienda',
+            'tienda_whatsapp_url', 'tienda_tipo_negocio', 'metodos_pago_tienda',
             'tienda_esta_abierta', 'tienda_acepta_programados',
             'tienda_hora_apertura', 'tienda_hora_cierre',
             'metodo_pago', 'tipo_entrega',
@@ -131,7 +134,7 @@ class GrupoCarritoSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'tienda_id', 'tienda_nombre', 'tienda_logo',
-            'tienda_whatsapp_url', 'metodos_pago_tienda',
+            'tienda_whatsapp_url', 'tienda_tipo_negocio', 'metodos_pago_tienda',
             'tienda_esta_abierta', 'tienda_acepta_programados',
             'tienda_hora_apertura', 'tienda_hora_cierre',
             'hora_confirmada', 'hora_entrega_display',
