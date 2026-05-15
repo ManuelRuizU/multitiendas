@@ -115,11 +115,12 @@ class ClienteRegistrationSerializer(serializers.ModelSerializer):
 
 
 # ------------------------------------------------------------------
-# 2. SERIALIZER DE REGISTRO DE VENDEDOR
+# 2. SERIALIZER DE REGISTRO DE VENDEDOR — CORREGIDO
 # El usuario completa el registro como emprendedor.
 # Crea: CustomUser + BuyerProfile + SellerProfile + Cliente + Direccion
 # El SellerProfile.save() activa is_vendedor=True automáticamente.
 # ------------------------------------------------------------------
+
 class SellerRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
         write_only=True,
@@ -129,31 +130,37 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
     password2 = serializers.CharField(write_only=True, required=True)
     tokens = serializers.SerializerMethodField(read_only=True)
 
-    # Campos del SellerProfile
-    telefono_vendedor = serializers.CharField(max_length=20, required=False, allow_blank=True, write_only=True)
-    whatsapp = serializers.CharField(max_length=15, required=True, write_only=True)
-    rut = serializers.CharField(max_length=12, required=True, write_only=True)
-    razon_social = serializers.CharField(max_length=150, required=True, write_only=True)
-    giro = serializers.CharField(max_length=150, required=True, write_only=True)
-    direccion_fiscal = serializers.CharField(max_length=255, required=True, write_only=True)
+    # Datos personales adicionales
+    apellido_materno  = serializers.CharField(max_length=150, required=True,  write_only=True)
+    telefono          = serializers.CharField(max_length=20,  required=True,  write_only=True)  # teléfono personal
 
-    # Dirección de la tienda (se crea como Cliente.Direccion)
-    calle = serializers.CharField(max_length=255, required=True, write_only=True)
-    numero = serializers.CharField(max_length=20, required=True, write_only=True)
-    comuna = serializers.CharField(max_length=100, required=True, write_only=True)
-    ciudad = serializers.CharField(max_length=100, required=True, write_only=True)
-    region = serializers.CharField(max_length=100, required=True, write_only=True)
+    # Campos del SellerProfile
+    telefono_vendedor = serializers.CharField(max_length=20,  required=False, allow_blank=True, write_only=True)
+    whatsapp          = serializers.CharField(max_length=15,  required=True,  write_only=True)
+    rut               = serializers.CharField(max_length=12,  required=True,  write_only=True)
+    razon_social      = serializers.CharField(max_length=150, required=True,  write_only=True)
+    giro              = serializers.CharField(max_length=150, required=True,  write_only=True)
+    direccion_fiscal  = serializers.CharField(max_length=255, required=True,  write_only=True)
+
+    # Dirección de la tienda
+    calle  = serializers.CharField(max_length=255, required=True,  write_only=True)
+    numero = serializers.CharField(max_length=20,  required=True,  write_only=True)
+    comuna = serializers.CharField(max_length=100, required=True,  write_only=True)
+    ciudad = serializers.CharField(max_length=100, required=True,  write_only=True)
+    region = serializers.CharField(max_length=100, required=True,  write_only=True)
 
     class Meta:
         model = User
         fields = [
-            # Datos del usuario
-            'username', 'email', 'password', 'password2',
-            'first_name', 'last_name',
+            # Datos del usuario — SIN username (se genera automáticamente)
+            'email', 'password', 'password2',
+            'first_name', 'last_name', 'apellido_materno',
+            # Teléfono personal
+            'telefono',
             # Datos del perfil de vendedor
             'telefono_vendedor', 'whatsapp', 'rut',
             'razon_social', 'giro', 'direccion_fiscal',
-            # Dirección
+            # Dirección de la tienda
             'calle', 'numero', 'comuna', 'ciudad', 'region',
             # Respuesta
             'tokens',
@@ -161,6 +168,13 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
 
     def get_tokens(self, obj):
         return get_tokens_for_user(obj)
+
+    def validate_telefono(self, value):
+        if not re.match(r'^\+569\d{8}$', value):
+            raise serializers.ValidationError(
+                "Ingresa un celular chileno válido. Ej: +56912345678"
+            )
+        return value
 
     def validate(self, data):
         if data['password'] != data['password2']:
@@ -175,8 +189,6 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"rut": "Este RUT ya está registrado en la plataforma."}
             )
-        # Validar formato WhatsApp
-        import re
         if not re.match(r'^\+56[2-9]\d{8}$', data['whatsapp']):
             raise serializers.ValidationError(
                 {"whatsapp": "Formato inválido. Usa +56912345678"}
@@ -186,19 +198,23 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('password2')
 
-        # Extraer datos del perfil
+        # Extraer campos extra
+        apellido_materno  = validated_data.pop('apellido_materno')
+        telefono_personal = validated_data.pop('telefono')
+
+        # Extraer datos del SellerProfile
         seller_data = {
-            'telefono': validated_data.pop('telefono_vendedor', None),
-            'whatsapp': validated_data.pop('whatsapp'),
-            'rut': validated_data.pop('rut'),
-            'razon_social': validated_data.pop('razon_social'),
-            'giro': validated_data.pop('giro'),
-            'direccion_fiscal': validated_data.pop('direccion_fiscal'),
+            'telefono':        validated_data.pop('telefono_vendedor', None),
+            'whatsapp':        validated_data.pop('whatsapp'),
+            'rut':             validated_data.pop('rut'),
+            'razon_social':    validated_data.pop('razon_social'),
+            'giro':            validated_data.pop('giro'),
+            'direccion_fiscal':validated_data.pop('direccion_fiscal'),
         }
 
         # Extraer datos de dirección
         direccion_data = {
-            'calle': validated_data.pop('calle'),
+            'calle':  validated_data.pop('calle'),
             'numero': validated_data.pop('numero'),
             'comuna': validated_data.pop('comuna'),
             'ciudad': validated_data.pop('ciudad'),
@@ -206,28 +222,37 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
         }
 
         with transaction.atomic():
+            # Generar username automáticamente desde el email
+            username = _generate_username(validated_data['email'])
+
             # Crear usuario
             user = User.objects.create_user(
-                username=validated_data['username'],
+                username=username,
                 email=validated_data['email'],
                 password=validated_data['password'],
                 first_name=validated_data.get('first_name', ''),
                 last_name=validated_data.get('last_name', ''),
             )
 
+            # Actualizar BuyerProfile con teléfono personal
+            if hasattr(user, 'buyer_profile'):
+                user.buyer_profile.telefono = telefono_personal
+                user.buyer_profile.save(update_fields=['telefono'])
+
             # Crear SellerProfile → activa is_vendedor=True automáticamente
             SellerProfile.objects.create(user=user, **seller_data)
 
-            # Crear Cliente para el flujo de pedidos
+            # Crear Cliente con apellido_materno y teléfono personal
             cliente = Cliente.objects.create(
                 user=user,
                 first_name=user.first_name,
                 last_name=user.last_name,
+                apellido_materno=apellido_materno,
                 email=user.email,
-                telefono=seller_data.get('telefono'),
+                telefono=telefono_personal,
             )
 
-            # Crear Dirección principal del vendedor
+            # Crear Dirección principal
             Direccion.objects.create(
                 cliente=cliente,
                 principal=True,
@@ -236,7 +261,6 @@ class SellerRegistrationSerializer(serializers.ModelSerializer):
             )
 
             return user
-
 
 # ------------------------------------------------------------------
 # 3. SERIALIZER DE REGISTRO DE REPARTIDOR

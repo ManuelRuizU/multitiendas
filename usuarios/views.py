@@ -54,11 +54,11 @@ class CheckEmailView(APIView):
 # ------------------------------------------------------------------
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
-        print("=== VALIDATE EJECUTADO ===")
+        # #print("=== VALIDATE EJECUTADO ===")
         data = super().validate(attrs)
-        print("=== USER:", self.user)
+        #print("=== USER:", self.user)
         data['user'] = UserSerializer(self.user).data
-        print("=== DATA KEYS:", list(data.keys()))
+        #print("=== DATA KEYS:", list(data.keys()))
         return data
 
 

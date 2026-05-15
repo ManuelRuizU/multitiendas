@@ -35,6 +35,31 @@ function Err({ msg }) {
   )
 }
 
+// ── Shared: password field with show/hide ──────────────────────────
+function PasswordInput({ name, value, onChange, placeholder = '••••••••', autoComplete = 'current-password' }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative">
+      <input
+        name={name}
+        type={show ? 'text' : 'password'}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+        placeholder={placeholder}
+        className={INPUT}
+      />
+      <button
+        type="button"
+        onClick={() => setShow(v => !v)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 text-xs transition-colors select-none"
+      >
+        {show ? 'Ocultar' : 'Ver'}
+      </button>
+    </div>
+  )
+}
+
 // ── Step 1: Email — determina si es login o registro ───────────────
 function EmailStep({ onExists, onNew }) {
   const [email,    setEmail]    = useState('')
@@ -101,11 +126,11 @@ function LoginStep({ email, username, onSuccess, onBack }) {
       <EmailLocked email={email} onBack={onBack} />
       <div>
         <label className={LABEL}>Contraseña</label>
-        <input
-          type="password" value={password}
+        <PasswordInput
+          name="password"
+          value={password}
           onChange={(e) => { setError(null); setPassword(e.target.value) }}
-          autoComplete="current-password" placeholder="••••••••"
-          className={INPUT}
+          autoComplete="current-password"
         />
       </div>
       <Err msg={error} />
@@ -124,6 +149,7 @@ function RegisterStep({ email, onSuccess, onBack }) {
   })
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
+
   const set = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }))
 
   // Acepta solo dígitos, máx 9
@@ -136,12 +162,29 @@ function RegisterStep({ email, onSuccess, onBack }) {
     e.preventDefault()
     setError(null)
 
-    if (form.password !== form.password2) {
-      setError('Las contraseñas no coinciden.')
+    // Validaciones
+    if (!form.first_name.trim()) {
+      setError('El nombre es obligatorio.')
+      return
+    }
+    if (!form.last_name.trim()) {
+      setError('El apellido paterno es obligatorio.')
+      return
+    }
+    if (!form.apellido_materno.trim()) {
+      setError('El apellido materno es obligatorio.')
       return
     }
     if (form.telefono.length < 9 || !form.telefono.startsWith('9')) {
       setError('Ingresa un celular chileno válido (+56 9XXXXXXXX).')
+      return
+    }
+    if (form.password.length < 8) {
+      setError('La contraseña debe tener al menos 8 caracteres.')
+      return
+    }
+    if (form.password !== form.password2) {
+      setError('Las contraseñas no coinciden.')
       return
     }
 
@@ -211,16 +254,27 @@ function RegisterStep({ email, onSuccess, onBack }) {
         </p>
       </div>
 
-      {/* Contraseñas */}
+      {/* Contraseña */}
       <div>
         <label className={LABEL}>Contraseña</label>
-        <input name="password" type="password" value={form.password} onChange={set}
-          autoComplete="new-password" placeholder="••••••••" className={INPUT} />
+        <PasswordInput
+          name="password"
+          value={form.password}
+          onChange={set}
+          autoComplete="new-password"
+        />
+        <p className="text-[10px] text-white/30 mt-1 pl-1">Mínimo 8 caracteres</p>
       </div>
+
+      {/* Repetir contraseña */}
       <div>
         <label className={LABEL}>Repetir contraseña</label>
-        <input name="password2" type="password" value={form.password2} onChange={set}
-          autoComplete="new-password" placeholder="••••••••" className={INPUT} />
+        <PasswordInput
+          name="password2"
+          value={form.password2}
+          onChange={set}
+          autoComplete="new-password"
+        />
       </div>
 
       <Err msg={error} />
@@ -241,9 +295,9 @@ const TITLE = {
 
 // ── Main component ─────────────────────────────────────────────────
 export default function AuthModal() {
-  const { pathname }                                        = useLocation()
+  const { pathname }                                         = useLocation()
   const { isAuthModalOpen, closeAuthModal, login, loadUser } = useAuth()
-  const { mergeGuestCart, fetchCart }                       = useCart()
+  const { mergeGuestCart, fetchCart }                        = useCart()
 
   const [step,     setStep]     = useState('email')
   const [email,    setEmail]    = useState('')
