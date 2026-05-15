@@ -119,6 +119,12 @@ class TiendaSerializer(serializers.ModelSerializer):
             # Contacto
             'telefono', 'email', 'url', 'horario_atencion', 'logo',
 
+            # Horario estructurado
+            'esta_abierto', 'acepta_pedidos_programados',
+            'hora_apertura', 'hora_cierre',
+            'abre_lunes', 'abre_martes', 'abre_miercoles', 'abre_jueves',
+            'abre_viernes', 'abre_sabado', 'abre_domingo',
+
             # Métodos de pago
             'acepta_efectivo', 'acepta_transferencia', 'acepta_link_pago',
             'banco', 'tipo_cuenta', 'numero_cuenta',
@@ -147,6 +153,7 @@ class TiendaSerializer(serializers.ModelSerializer):
             'metodos_pago', 'loyverse_configurado',
             'stock_ilimitado_default',
             'whatsapp_vendedor', 'whatsapp_url',
+            'esta_abierto',
         ]
         extra_kwargs = {
             'loyverse_token': {'write_only': True},
