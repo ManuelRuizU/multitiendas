@@ -71,7 +71,7 @@ class TiendaPublicaSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'nombre', 'slug', 'tipo_negocio', 'descripcion',
             'direccion', 'latitud', 'longitud',
-            'telefono', 'email', 'url', 'horario_atencion', 'logo',
+            'telefono', 'email', 'url', 'horario_atencion', 'logo', 'banner',
             'activo', 'fecha_creacion',
             'acepta_efectivo', 'acepta_transferencia', 'acepta_link_pago',
             'metodos_pago', 'whatsapp_url',
@@ -117,7 +117,7 @@ class TiendaSerializer(serializers.ModelSerializer):
             'direccion', 'latitud', 'longitud',
 
             # Contacto
-            'telefono', 'email', 'url', 'horario_atencion', 'logo',
+            'telefono', 'email', 'url', 'horario_atencion', 'logo', 'banner',
 
             # Horario estructurado
             'esta_abierto', 'acepta_pedidos_programados',

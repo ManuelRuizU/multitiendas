@@ -106,6 +106,11 @@ class Tienda(models.Model):
     )
 
     logo = models.ImageField(upload_to="logos_tiendas/", blank=True, null=True)
+    banner = models.ImageField(
+        upload_to='banners_tiendas/',
+        blank=True, null=True,
+        help_text="Imagen de portada. Recomendado: 1200x400px"
+    )
 
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     activo = models.BooleanField(default=True)

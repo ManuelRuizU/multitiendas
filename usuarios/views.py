@@ -221,16 +221,21 @@ class SellerProfileViewSet(viewsets.ModelViewSet):
             return SellerProfile.objects.filter(user=self.request.user)
         return SellerProfile.objects.none()
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get', 'patch'])
     def mi_perfil(self, request):
-        """Retorna el perfil del vendedor autenticado."""
+        """Retorna o actualiza parcialmente el perfil del vendedor autenticado."""
         perfil = getattr(request.user, 'seller_profile', None)
-        if perfil:
-            return Response(self.get_serializer(perfil).data)
-        return Response(
-            {"detail": "Perfil de vendedor no encontrado."},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        if not perfil:
+            return Response(
+                {"detail": "Perfil de vendedor no encontrado."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        if request.method == 'PATCH':
+            serializer = self.get_serializer(perfil, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+        return Response(self.get_serializer(perfil).data)
 
 
 # ------------------------------------------------------------------

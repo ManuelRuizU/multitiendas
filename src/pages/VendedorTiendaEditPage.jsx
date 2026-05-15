@@ -36,16 +36,25 @@ export default function VendedorTiendaEditPage() {
   const { slug } = useParams()
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
-  const fileRef = useRef()
+  const fileRef   = useRef()
+  const bannerRef = useRef()
 
-  const [tienda, setTienda]       = useState(null)
-  const [form,   setForm]         = useState(null)
-  const [logoFile, setLogoFile]   = useState(null)
-  const [logoPrev, setLogoPrev]   = useState(null)
-  const [loading, setLoading]     = useState(true)
-  const [saving,  setSaving]      = useState(false)
-  const [saved,   setSaved]       = useState(false)
-  const [errs,    setErrs]        = useState({})
+  const [tienda, setTienda]         = useState(null)
+  const [form,   setForm]           = useState(null)
+  const [logoFile, setLogoFile]     = useState(null)
+  const [logoPrev, setLogoPrev]     = useState(null)
+  const [bannerFile, setBannerFile] = useState(null)
+  const [bannerPrev, setBannerPrev] = useState(null)
+  const [loading, setLoading]       = useState(true)
+  const [saving,  setSaving]        = useState(false)
+  const [saved,   setSaved]         = useState(false)
+  const [errs,    setErrs]          = useState({})
+
+  // WhatsApp del negocio (SellerProfile — guardado separado)
+  const [whatsapp,        setWhatsapp]        = useState('')
+  const [savingWhatsapp,  setSavingWhatsapp]  = useState(false)
+  const [savedWhatsapp,   setSavedWhatsapp]   = useState(false)
+  const [whatsappErr,     setWhatsappErr]     = useState('')
 
   // Radios de envío (gestión independiente del formulario principal)
   const [radios,        setRadios]        = useState([])
@@ -108,6 +117,14 @@ export default function VendedorTiendaEditPage() {
       .finally(() => setLoading(false))
   }, [slug, user, authLoading, navigate])
 
+  // Cargar WhatsApp del SellerProfile
+  useEffect(() => {
+    if (authLoading || !user) return
+    api.get('usuarios/seller-profiles/mi_perfil/')
+      .then(({ data }) => setWhatsapp((data.whatsapp ?? '').replace(/^\+56/, '')))
+      .catch(() => {})
+  }, [user, authLoading])
+
   // Cargar radios cuando ya tenemos el id de la tienda
   useEffect(() => {
     if (!tienda?.id) return
@@ -123,6 +140,32 @@ export default function VendedorTiendaEditPage() {
     if (!file) return
     setLogoFile(file)
     setLogoPrev(URL.createObjectURL(file))
+  }
+
+  const handleBannerChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setBannerFile(file)
+    setBannerPrev(URL.createObjectURL(file))
+  }
+
+  const handleSaveWhatsapp = async () => {
+    setWhatsappErr('')
+    if (!whatsapp || whatsapp.length < 9 || !whatsapp.startsWith('9')) {
+      setWhatsappErr('Ingresa un número válido (+56 9XXXXXXXX)')
+      return
+    }
+    setSavingWhatsapp(true)
+    setSavedWhatsapp(false)
+    try {
+      await api.patch('usuarios/seller-profiles/mi_perfil/', { whatsapp: `+56${whatsapp}` })
+      setSavedWhatsapp(true)
+      setTimeout(() => setSavedWhatsapp(false), 3500)
+    } catch {
+      setWhatsappErr('Error al guardar. Intenta nuevamente.')
+    } finally {
+      setSavingWhatsapp(false)
+    }
   }
 
   const validate = () => {
@@ -158,7 +201,8 @@ export default function VendedorTiendaEditPage() {
       ;['activo','acepta_pedidos_programados','acepta_efectivo','acepta_transferencia','acepta_link_pago',
         ...DIAS.map(d => `abre_${d}`)
       ].forEach(k => fd.set(k, String(form[k])))
-      if (logoFile) fd.append('logo', logoFile)
+      if (logoFile)   fd.append('logo',   logoFile)
+      if (bannerFile) fd.append('banner', bannerFile)
 
       await api.patch(`tiendas/${slug}/`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -229,7 +273,8 @@ export default function VendedorTiendaEditPage() {
     )
   }
 
-  const logoSrc = logoPrev ?? tienda.logo ?? null
+  const logoSrc   = logoPrev   ?? tienda.logo   ?? null
+  const bannerSrc = bannerPrev ?? tienda.banner ?? null
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -305,7 +350,71 @@ export default function VendedorTiendaEditPage() {
           </div>
         </Section>
 
-        {/* ── 3. Ubicación y contacto ──────────────────────────── */}
+        {/* ── 3. Banner ───────────────────────────────────────── */}
+        <Section title="Imagen de portada (Banner)">
+          <p className="text-xs text-white/35">
+            Imagen que aparece en la cabecera de tu tienda · Recomendado: 1200×400px
+          </p>
+          {bannerSrc ? (
+            <div className="rounded-xl overflow-hidden border border-white/10">
+              <img src={bannerSrc} alt="Banner" className="w-full h-32 object-cover" />
+            </div>
+          ) : (
+            <div className="w-full h-24 rounded-xl bg-white/[0.04] border border-dashed border-white/15 flex items-center justify-center text-white/20 text-sm">
+              Sin banner
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => bannerRef.current?.click()}
+              className="text-sm text-orange-400 hover:text-orange-300 border border-orange-500/30 hover:bg-orange-500/10 px-4 py-2 rounded-full transition-all"
+            >
+              {bannerSrc ? 'Cambiar banner' : 'Subir banner'}
+            </button>
+            <p className="text-xs text-white/25">PNG, JPG · Máx 5 MB</p>
+          </div>
+          <input ref={bannerRef} type="file" accept="image/*" className="hidden" onChange={handleBannerChange} />
+        </Section>
+
+        {/* ── 4. Contacto del negocio (WhatsApp — SellerProfile) ── */}
+        <Section title="Contacto del negocio">
+          <Field label="WhatsApp del negocio">
+            <div className="flex bg-white/[0.06] border border-white/10 focus-within:border-orange-500/50 rounded-xl overflow-hidden transition-colors">
+              <span className="flex items-center pl-4 pr-3 text-sm text-white/40 select-none shrink-0 border-r border-white/10">
+                +56
+              </span>
+              <input
+                type="tel"
+                value={whatsapp}
+                onChange={e => {
+                  setWhatsappErr('')
+                  setWhatsapp(e.target.value.replace(/\D/g, '').slice(0, 9))
+                }}
+                placeholder="9 1234 5678"
+                maxLength={9}
+                className="flex-1 bg-transparent focus:outline-none px-3 py-2.5 text-sm text-white placeholder-white/20"
+              />
+            </div>
+            <p className="text-[10px] text-white/30 mt-1 pl-1">
+              Número donde recibirás los pedidos de tus clientes
+            </p>
+            {whatsappErr && <p className="text-[10px] text-red-400 mt-1">{whatsappErr}</p>}
+          </Field>
+          <button
+            onClick={handleSaveWhatsapp}
+            disabled={savingWhatsapp || savedWhatsapp}
+            className={[
+              'w-full font-semibold py-2.5 rounded-xl text-sm transition-all duration-300 active:scale-[0.98]',
+              savedWhatsapp
+                ? 'bg-green-500 text-white'
+                : 'bg-white/[0.07] hover:bg-white/[0.12] disabled:opacity-50 text-white border border-white/10',
+            ].join(' ')}
+          >
+            {savingWhatsapp ? '⏳ Guardando...' : savedWhatsapp ? '✅ WhatsApp actualizado' : 'Actualizar WhatsApp'}
+          </button>
+        </Section>
+
+        {/* ── 5. Ubicación y contacto de la tienda ──────────────── */}
         <Section title="Ubicación y contacto">
           <Field label="Dirección" required error={errs.direccion}>
             <input
