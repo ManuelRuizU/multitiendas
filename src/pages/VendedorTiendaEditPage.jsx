@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../services/api'
@@ -21,6 +22,14 @@ const iCls = (err) => [
   err ? 'border-red-500/60 focus:border-red-500/80' : 'border-white/10 focus:border-orange-500/50',
 ].join(' ')
 
+// ── Select con fondo oscuro para que se vean las opciones ──────────────────
+const selectCls = (err) => [
+  'w-full border rounded-xl px-3 py-2.5 text-sm text-white',
+  'focus:outline-none transition-colors appearance-none',
+  'bg-slate-800',  // fondo oscuro fijo para que las opciones sean legibles
+  err ? 'border-red-500/60 focus:border-red-500/80' : 'border-white/10 focus:border-orange-500/50',
+].join(' ')
+
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function VendedorTiendaEditPage() {
@@ -38,19 +47,25 @@ export default function VendedorTiendaEditPage() {
   const [saved,   setSaved]       = useState(false)
   const [errs,    setErrs]        = useState({})
 
-  // Auth guard — not logged in or not a vendor → home
+  // Radios de envío (gestión independiente del formulario principal)
+  const [radios,        setRadios]        = useState([])
+  const [newRadio,      setNewRadio]      = useState({ distancia_max_km: '', costo_envio: '', envio_gratis: false })
+  const [addingRadio,   setAddingRadio]   = useState(false)
+  const [deletingRadio, setDeletingRadio] = useState(null)
+  const [radioErr,      setRadioErr]      = useState('')
+
+  // Auth guard
   useEffect(() => {
     if (authLoading) return
     if (!user)             { navigate('/');  return }
     if (!user.is_vendedor) { navigate('/');  return }
   }, [user, authLoading, navigate])
 
-  // Load tienda — also validates slug ownership
+  // Load tienda
   useEffect(() => {
     if (authLoading || !user) return
     api.get(`tiendas/${slug}/`)
       .then(({ data }) => {
-        // Slug doesn't belong to this vendor → back to panel
         if (data.vendedor_username !== user.username) {
           navigate('/vendedor/panel')
           return
@@ -93,6 +108,14 @@ export default function VendedorTiendaEditPage() {
       .finally(() => setLoading(false))
   }, [slug, user, authLoading, navigate])
 
+  // Cargar radios cuando ya tenemos el id de la tienda
+  useEffect(() => {
+    if (!tienda?.id) return
+    api.get(`radios-envio/?tienda_id=${tienda.id}`)
+      .then(({ data }) => setRadios(Array.isArray(data) ? data : (data.results ?? [])))
+      .catch(() => {})
+  }, [tienda?.id])
+
   const upd = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
   const handleLogoChange = (e) => {
@@ -132,7 +155,6 @@ export default function VendedorTiendaEditPage() {
         if (v === null || v === undefined || v === '') return
         fd.append(k, typeof v === 'boolean' ? String(v) : v)
       })
-      // Explicitly send falsy booleans too
       ;['activo','acepta_pedidos_programados','acepta_efectivo','acepta_transferencia','acepta_link_pago',
         ...DIAS.map(d => `abre_${d}`)
       ].forEach(k => fd.set(k, String(form[k])))
@@ -152,6 +174,41 @@ export default function VendedorTiendaEditPage() {
       }
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleAddRadio = async () => {
+    setRadioErr('')
+    const km = parseFloat(newRadio.distancia_max_km)
+    if (!km || km <= 0) { setRadioErr('Ingresa una distancia válida'); return }
+    if (!newRadio.envio_gratis && (newRadio.costo_envio === '' || parseFloat(newRadio.costo_envio) < 0))
+      { setRadioErr('Ingresa el costo de envío'); return }
+    setAddingRadio(true)
+    try {
+      const { data } = await api.post('radios-envio/', {
+        tienda:           tienda.id,
+        distancia_max_km: km,
+        costo_envio:      newRadio.envio_gratis ? 0 : parseFloat(newRadio.costo_envio),
+        envio_gratis:     newRadio.envio_gratis,
+      })
+      setRadios(r => [...r, data].sort((a, b) => a.distancia_max_km - b.distancia_max_km))
+      setNewRadio({ distancia_max_km: '', costo_envio: '', envio_gratis: false })
+    } catch {
+      setRadioErr('Error al agregar radio. Intenta nuevamente.')
+    } finally {
+      setAddingRadio(false)
+    }
+  }
+
+  const handleDeleteRadio = async (id) => {
+    setDeletingRadio(id)
+    try {
+      await api.delete(`radios-envio/${id}/`)
+      setRadios(r => r.filter(x => x.id !== id))
+    } catch {
+      // silent — radio remains in list
+    } finally {
+      setDeletingRadio(null)
     }
   }
 
@@ -180,12 +237,7 @@ export default function VendedorTiendaEditPage() {
 
       <main className="max-w-2xl mx-auto px-4 pt-5 pb-24 space-y-6">
 
-        {/* Feedback */}
-        {saved && (
-          <div className="bg-green-900/20 border border-green-700/40 text-green-400 rounded-xl px-4 py-3 text-sm">
-            ✅ Cambios guardados correctamente
-          </div>
-        )}
+        {/* Error global */}
         {errs._global && (
           <div className="bg-red-900/20 border border-red-700/40 text-red-400 rounded-xl px-4 py-3 text-sm">
             {errs._global}
@@ -207,7 +259,7 @@ export default function VendedorTiendaEditPage() {
             <select
               value={form.tipo_negocio}
               onChange={e => upd('tipo_negocio', e.target.value)}
-              className={iCls()}
+              className={selectCls()}
             >
               <option value="COMIDA">🍕 Comida y Bebidas</option>
               <option value="RETAIL">🛍️ Tienda / Retail</option>
@@ -312,6 +364,7 @@ export default function VendedorTiendaEditPage() {
               {DIAS.map(dia => (
                 <button
                   key={dia}
+                  type="button"
                   onClick={() => upd(`abre_${dia}`, !form[`abre_${dia}`])}
                   className={[
                     'px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
@@ -358,7 +411,7 @@ export default function VendedorTiendaEditPage() {
                   <Field label="Banco" required error={errs.banco}>
                     <select value={form.banco}
                       onChange={e => upd('banco', e.target.value)}
-                      className={iCls(errs.banco)}>
+                      className={selectCls(errs.banco)}>
                       <option value="">Seleccionar…</option>
                       {BANCOS.map(b => <option key={b} value={b}>{b}</option>)}
                     </select>
@@ -366,7 +419,7 @@ export default function VendedorTiendaEditPage() {
                   <Field label="Tipo de cuenta" required error={errs.tipo_cuenta}>
                     <select value={form.tipo_cuenta}
                       onChange={e => upd('tipo_cuenta', e.target.value)}
-                      className={iCls(errs.tipo_cuenta)}>
+                      className={selectCls(errs.tipo_cuenta)}>
                       <option value="">Seleccionar…</option>
                       {TIPOS_CUENTA.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
@@ -424,13 +477,119 @@ export default function VendedorTiendaEditPage() {
           </div>
         </Section>
 
-        {/* ── Guardar ─────────────────────────────────────────── */}
+        {/* ── 6. Zona de despacho ──────────────────────────────── */}
+        <Section title="Zona de despacho">
+
+          {/* Hint */}
+          <p className="text-xs text-white/35 leading-relaxed">
+            Ej: Hasta 3 km → $1.500 &nbsp;|&nbsp; Hasta 6 km → $2.500 &nbsp;|&nbsp; Hasta 10 km → Gratis
+          </p>
+
+          {/* Radios existentes */}
+          {radios.length > 0 && (
+            <div className="space-y-2">
+              {radios.map(radio => (
+                <div
+                  key={radio.id}
+                  className="flex items-center gap-3 bg-white/[0.04] border border-white/8 rounded-xl px-3 py-2.5"
+                >
+                  <span className="text-base shrink-0">📍</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white leading-snug">
+                      Hasta {radio.distancia_max_km} km
+                    </p>
+                    <p className="text-xs text-white/40 mt-0.5">
+                      {radio.envio_gratis
+                        ? '🎁 Envío gratis'
+                        : `$${Number(radio.costo_envio).toLocaleString('es-CL')}`
+                      }
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteRadio(radio.id)}
+                    disabled={deletingRadio === radio.id}
+                    aria-label={`Eliminar radio ${radio.distancia_max_km} km`}
+                    className="w-7 h-7 flex items-center justify-center rounded-full bg-red-900/30 hover:bg-red-800/50 text-red-400 text-xs disabled:opacity-30 transition-colors shrink-0"
+                  >
+                    {deletingRadio === radio.id ? '…' : '✕'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {radios.length === 0 && (
+            <p className="text-xs text-white/25 text-center py-3 border border-dashed border-white/10 rounded-xl">
+              Sin radios de envío configurados
+            </p>
+          )}
+
+          {/* Formulario nuevo radio */}
+          <div className="bg-white/[0.03] border border-white/8 rounded-xl p-3 space-y-3">
+            <p className="text-xs font-semibold text-white/50">Agregar radio de envío</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Distancia máx. (km)">
+                <input
+                  type="number" min="0.1" step="0.5"
+                  value={newRadio.distancia_max_km}
+                  onChange={e => setNewRadio(r => ({ ...r, distancia_max_km: e.target.value }))}
+                  placeholder="5"
+                  className={iCls(radioErr && !newRadio.distancia_max_km)}
+                />
+              </Field>
+              <Field label="Costo de envío ($)">
+                <input
+                  type="number" min="0" step="100"
+                  value={newRadio.costo_envio}
+                  disabled={newRadio.envio_gratis}
+                  onChange={e => setNewRadio(r => ({ ...r, costo_envio: e.target.value }))}
+                  placeholder="1500"
+                  className={`${iCls(radioErr && !newRadio.envio_gratis && !newRadio.costo_envio)} disabled:opacity-35`}
+                />
+              </Field>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Toggle
+                  checked={newRadio.envio_gratis}
+                  onChange={v => setNewRadio(r => ({ ...r, envio_gratis: v, costo_envio: v ? '' : r.costo_envio }))}
+                />
+                <span className="text-sm text-white/60">Envío gratis</span>
+              </div>
+              <button
+                onClick={handleAddRadio}
+                disabled={addingRadio}
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 disabled:opacity-50 active:scale-[0.97] text-white text-xs font-bold px-4 py-2 rounded-full transition-all"
+              >
+                {addingRadio ? '…' : '+ Agregar radio'}
+              </button>
+            </div>
+
+            {radioErr && (
+              <p className="text-[10px] text-red-400">{radioErr}</p>
+            )}
+          </div>
+
+          {/* Cuadrantes — nota */}
+          <p className="text-xs text-white/25 text-center pt-1">
+            Para zonas de despacho personalizadas (polígonos), contacta al soporte.
+          </p>
+        </Section>
+
+        {/* ── Botón Guardar con feedback visual ───────────────── */}
         <button
           onClick={handleSave}
-          disabled={saving}
-          className="w-full bg-orange-500 hover:bg-orange-400 disabled:opacity-50 active:scale-[0.98] text-white font-bold py-3.5 rounded-xl transition-all"
+          disabled={saving || saved}
+          className={[
+            'w-full font-bold py-3.5 rounded-xl transition-all duration-300 active:scale-[0.98]',
+            saved
+              ? 'bg-green-500 hover:bg-green-400 text-white'
+              : 'bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-white',
+          ].join(' ')}
         >
-          {saving ? 'Guardando…' : 'Guardar cambios'}
+          {saving ? '⏳ Guardando...' : saved ? '✅ Cambios guardados' : '💾 Guardar cambios'}
         </button>
 
       </main>
