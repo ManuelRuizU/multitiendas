@@ -100,28 +100,45 @@ export default function TiendaPage() {
         onBack={() => navigate(-1)}
       />
 
-      <main className="max-w-3xl mx-auto px-4 pt-6 pb-16">
+      <main className="max-w-3xl mx-auto px-4 pt-0 pb-16">
 
-        {/* Tienda info banner */}
+        {/* ── Hero: Banner + Logo ── */}
         {tienda && (
-          <div className="flex gap-4 mb-6 p-4 bg-white/5 rounded-2xl border border-white/5">
-            {tienda.logo
-              ? <img src={tienda.logo} alt={tienda.nombre} className="w-16 h-16 rounded-xl object-cover shrink-0" />
-              : <div className="w-16 h-16 rounded-xl bg-orange-500/20 flex items-center justify-center text-3xl shrink-0">🏪</div>
-            }
-            <div className="min-w-0">
-              <h2 className="font-bold text-base leading-snug">{tienda.nombre}</h2>
-              {tienda.descripcion && (
-                <p className="text-xs text-white/45 mt-1 line-clamp-2 leading-relaxed">{tienda.descripcion}</p>
-              )}
-              {tienda.metodos_pago?.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {tienda.metodos_pago.map((m) => (
-                    <span key={m} className="text-[10px] bg-white/10 text-white/50 px-2 py-0.5 rounded-full">{m}</span>
-                  ))}
-                </div>
-              )}
+          <div className="relative -mx-4 mb-14">
+            {tienda.banner ? (
+              <img
+                src={tienda.banner}
+                alt=""
+                className="w-full h-40 object-cover"
+              />
+            ) : (
+              <div className="w-full h-24 bg-gradient-to-br from-orange-500/10 via-slate-900 to-slate-950" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 to-transparent pointer-events-none" />
+            <div className="absolute -bottom-8 left-4">
+              <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-800 border-2 border-slate-950 shadow-xl">
+                {tienda.logo
+                  ? <img src={tienda.logo} alt={tienda.nombre} className="w-full h-full object-cover" />
+                  : <div className="w-full h-full flex items-center justify-center text-3xl">🏪</div>
+                }
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Info básica ── */}
+        {tienda && (
+          <div className="mb-6">
+            {tienda.descripcion && (
+              <p className="text-sm text-white/50 leading-relaxed">{tienda.descripcion}</p>
+            )}
+            {tienda.metodos_pago?.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {tienda.metodos_pago.map((m) => (
+                  <span key={m} className="text-[10px] bg-white/10 text-white/50 px-2 py-0.5 rounded-full">{m}</span>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
