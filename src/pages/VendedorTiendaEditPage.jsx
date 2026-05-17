@@ -1,9 +1,11 @@
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { GoogleMap, Marker } from '@react-google-maps/api'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import Header from '../components/Header'
+import { useGoogleMaps } from '../hooks/useGoogleMaps'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -15,6 +17,17 @@ const BANCOS = [
 const TIPOS_CUENTA = ['Cuenta Corriente','Cuenta Vista','Cuenta RUT','Cuenta de Ahorro']
 const DIAS = ['lunes','martes','miercoles','jueves','viernes','sabado','domingo']
 const DIAS_LABEL = { lunes:'Lun', martes:'Mar', miercoles:'Mié', jueves:'Jue', viernes:'Vie', sabado:'Sáb', domingo:'Dom' }
+
+const ANGOL_CENTER = { lat: -37.7963, lng: -72.7054 }
+const MAP_CONTAINER = { width: '100%', height: '300px' }
+const DARK_MAP_STYLES = [
+  { elementType: 'geometry',            stylers: [{ color: '#1d2235' }] },
+  { elementType: 'labels.text.fill',    stylers: [{ color: '#8ec3b9' }] },
+  { elementType: 'labels.text.stroke',  stylers: [{ color: '#1a3646' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
+  { featureType: 'poi',   stylers: [{ visibility: 'off' }] },
+]
 
 const iCls = (err) => [
   'w-full bg-white/[0.06] border rounded-xl px-3 py-2.5 text-sm text-white',
@@ -36,6 +49,7 @@ export default function VendedorTiendaEditPage() {
   const { slug } = useParams()
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
+  const { isLoaded: mapsLoaded } = useGoogleMaps()
   const fileRef   = useRef()
   const bannerRef = useRef()
 
@@ -49,6 +63,12 @@ export default function VendedorTiendaEditPage() {
   const [saving,  setSaving]        = useState(false)
   const [saved,   setSaved]         = useState(false)
   const [errs,    setErrs]          = useState({})
+
+  // Mapa
+  const [showMap,    setShowMap]    = useState(false)
+  const [mapCenter,  setMapCenter]  = useState(ANGOL_CENTER)
+  const [markerPos,  setMarkerPos]  = useState(null)
+  const [coordMsg,   setCoordMsg]   = useState(false)
 
   // WhatsApp del negocio (SellerProfile — guardado separado)
   const [whatsapp,        setWhatsapp]        = useState('')
@@ -86,6 +106,8 @@ export default function VendedorTiendaEditPage() {
           descripcion:              data.descripcion              ?? '',
           activo:                   data.activo                   ?? true,
           direccion:                data.direccion                ?? '',
+          latitud:                  data.latitud                  ?? '',
+          longitud:                 data.longitud                 ?? '',
           telefono:                 data.telefono                 ?? '',
           email:                    data.email                    ?? '',
           url:                      data.url                      ?? '',
@@ -148,6 +170,53 @@ export default function VendedorTiendaEditPage() {
     setBannerFile(file)
     setBannerPrev(URL.createObjectURL(file))
   }
+
+  const handleOpenMap = () => {
+    const lat = parseFloat(form.latitud)
+    const lng = parseFloat(form.longitud)
+    if (lat && lng) {
+      const pos = { lat, lng }
+      setMapCenter(pos)
+      setMarkerPos(pos)
+      setShowMap(true)
+    } else if (mapsLoaded && form.direccion.trim()) {
+      const geocoder = new window.google.maps.Geocoder()
+      const query = `${form.direccion}, Angol, Chile`
+      geocoder.geocode({ address: query }, (results, status) => {
+        console.log('[Geocoding]', query, '→', status, results?.[0]?.geometry?.location?.toString())
+        if (status === 'OK') {
+          const loc = results[0].geometry.location
+          const pos = { lat: loc.lat(), lng: loc.lng() }
+          setMapCenter(pos)
+          setMarkerPos(pos)
+          upd('latitud',  loc.lat().toFixed(6))
+          upd('longitud', loc.lng().toFixed(6))
+          setCoordMsg(true)
+          setTimeout(() => setCoordMsg(false), 3000)
+        } else {
+          setMapCenter(ANGOL_CENTER)
+          setMarkerPos(ANGOL_CENTER)
+        }
+        setShowMap(true)
+      })
+    } else {
+      setMapCenter(ANGOL_CENTER)
+      setMarkerPos(ANGOL_CENTER)
+      setShowMap(true)
+    }
+  }
+
+  const handleMarkerDragEnd = useCallback((e) => {
+    const lat = e.latLng.lat()
+    const lng = e.latLng.lng()
+    const pos = { lat, lng }
+    setMarkerPos(pos)
+    setMapCenter(pos)
+    upd('latitud',  lat.toFixed(6))
+    upd('longitud', lng.toFixed(6))
+    setCoordMsg(true)
+    setTimeout(() => setCoordMsg(false), 3000)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveWhatsapp = async () => {
     setWhatsappErr('')
@@ -424,6 +493,56 @@ export default function VendedorTiendaEditPage() {
               className={iCls(errs.direccion)}
             />
           </Field>
+
+          {/* Botón mapa */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => showMap ? setShowMap(false) : handleOpenMap()}
+              className="flex items-center gap-1.5 text-sm text-orange-400 hover:text-orange-300 border border-orange-500/30 hover:bg-orange-500/10 px-3 py-1.5 rounded-full transition-all"
+            >
+              📍 {showMap ? 'Ocultar mapa' : 'Ver en mapa'}
+            </button>
+            {form.latitud && form.longitud && (
+              <span className="text-[10px] text-white/30">
+                {parseFloat(form.latitud).toFixed(5)}, {parseFloat(form.longitud).toFixed(5)}
+              </span>
+            )}
+          </div>
+
+          {/* Mapa embebido */}
+          {showMap && (
+            <div className="rounded-xl overflow-hidden border border-white/10">
+              {!mapsLoaded ? (
+                <div className="h-[300px] bg-white/5 flex items-center justify-center text-white/30 text-sm animate-pulse">
+                  Cargando mapa…
+                </div>
+              ) : (
+                <GoogleMap
+                  mapContainerStyle={MAP_CONTAINER}
+                  center={mapCenter}
+                  zoom={15}
+                  options={{ disableDefaultUI: true, zoomControl: true, styles: DARK_MAP_STYLES }}
+                >
+                  {markerPos && (
+                    <Marker
+                      position={markerPos}
+                      draggable
+                      onDragEnd={handleMarkerDragEnd}
+                    />
+                  )}
+                </GoogleMap>
+              )}
+              {coordMsg && (
+                <p className="text-xs text-green-400 text-center py-2 bg-green-900/10">
+                  📍 Coordenadas actualizadas
+                </p>
+              )}
+              <p className="text-[10px] text-white/25 text-center py-1.5">
+                Arrastra el pin para ajustar la ubicación exacta
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Teléfono">
               <input type="tel" value={form.telefono}
