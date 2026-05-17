@@ -1,7 +1,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { GoogleMap, Marker } from '@react-google-maps/api'
+import { GoogleMap, Marker, Autocomplete } from '@react-google-maps/api'
 import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 import Header from '../components/Header'
@@ -50,8 +50,9 @@ export default function VendedorTiendaEditPage() {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
   const { isLoaded: mapsLoaded } = useGoogleMaps()
-  const fileRef   = useRef()
-  const bannerRef = useRef()
+  const fileRef        = useRef()
+  const bannerRef      = useRef()
+  const autocompleteRef = useRef(null)
 
   const [tienda, setTienda]         = useState(null)
   const [form,   setForm]           = useState(null)
@@ -65,10 +66,11 @@ export default function VendedorTiendaEditPage() {
   const [errs,    setErrs]          = useState({})
 
   // Mapa
-  const [showMap,    setShowMap]    = useState(false)
-  const [mapCenter,  setMapCenter]  = useState(ANGOL_CENTER)
-  const [markerPos,  setMarkerPos]  = useState(null)
-  const [coordMsg,   setCoordMsg]   = useState(false)
+  const [showMap,     setShowMap]     = useState(false)
+  const [mapCenter,   setMapCenter]   = useState(ANGOL_CENTER)
+  const [markerPos,   setMarkerPos]   = useState(null)
+  const [syncStatus,  setSyncStatus]  = useState('idle')   // 'idle' | 'syncing' | 'synced'
+  const [mapMsg,      setMapMsg]      = useState('')        // mensaje temporal en el mapa
 
   // WhatsApp del negocio (SellerProfile — guardado separado)
   const [whatsapp,        setWhatsapp]        = useState('')
@@ -157,28 +159,22 @@ export default function VendedorTiendaEditPage() {
 
   const upd = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
-  // Geocodificar automáticamente cuando cambia la dirección (debounce 800ms)
-  useEffect(() => {
-    if (!mapsLoaded || !form?.direccion?.trim()) return
-    const timer = setTimeout(() => {
-      const geocoder = new window.google.maps.Geocoder()
-      const query = `${form.direccion.trim()}, Angol, Chile`
-      geocoder.geocode({ address: query }, (results, status) => {
-        console.log('[Geocoding auto]', query, '→', status, results?.[0]?.geometry?.location?.toString())
-        if (status === 'OK') {
-          const loc = results[0].geometry.location
-          const pos = { lat: loc.lat(), lng: loc.lng() }
-          setMarkerPos(pos)
-          setMapCenter(pos)
-          upd('latitud',  loc.lat().toFixed(6))
-          upd('longitud', loc.lng().toFixed(6))
-          setCoordMsg(true)
-          setTimeout(() => setCoordMsg(false), 3000)
-        }
-      })
-    }, 800)
-    return () => clearTimeout(timer)
-  }, [form?.direccion, mapsLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  const showMsg = (msg) => { setMapMsg(msg); setTimeout(() => setMapMsg(''), 3000) }
+
+  // Places Autocomplete: seleccionar sugerencia → actualiza dirección + coords + pin
+  const handlePlaceChanged = useCallback(() => {
+    const place = autocompleteRef.current?.getPlace()
+    if (!place?.geometry?.location) return
+    const loc = place.geometry.location
+    const pos = { lat: loc.lat(), lng: loc.lng() }
+    const addr = place.formatted_address || place.name || ''
+    setForm(f => ({ ...f, direccion: addr, latitud: loc.lat().toFixed(6), longitud: loc.lng().toFixed(6) }))
+    setMarkerPos(pos)
+    setMapCenter(pos)
+    setSyncStatus('synced')
+    setShowMap(true)
+    console.log('[Places] Seleccionado:', addr, pos)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0]
@@ -201,12 +197,39 @@ export default function VendedorTiendaEditPage() {
       const pos = { lat, lng }
       setMapCenter(pos)
       setMarkerPos(pos)
+      setSyncStatus('synced')
+      setShowMap(true)
+    } else if (mapsLoaded && form.direccion?.trim()) {
+      setSyncStatus('syncing')
+      const geocoder = new window.google.maps.Geocoder()
+      geocoder.geocode({ address: `${form.direccion.trim()}, Angol, Chile` }, (results, status) => {
+        console.log('[Geocoding]', form.direccion, '→', status, results?.[0]?.geometry?.location?.toString())
+        if (status === 'OK') {
+          const loc = results[0].geometry.location
+          const pos = { lat: loc.lat(), lng: loc.lng() }
+          setMarkerPos(pos)
+          setMapCenter(pos)
+          setForm(f => ({ ...f, latitud: loc.lat().toFixed(6), longitud: loc.lng().toFixed(6) }))
+          setSyncStatus('synced')
+          showMsg('📍 Coordenadas actualizadas')
+        } else {
+          setMapCenter(ANGOL_CENTER)
+          setMarkerPos(null)
+          setSyncStatus('idle')
+        }
+        setShowMap(true)
+      })
     } else {
       setMapCenter(ANGOL_CENTER)
-      setMarkerPos(ANGOL_CENTER)
+      setMarkerPos(null)
+      setSyncStatus('idle')
+      setShowMap(true)
     }
-    setShowMap(true)
   }
+
+  const handleMarkerDrag = useCallback(() => {
+    setSyncStatus('syncing')
+  }, [])
 
   const handleMarkerDragEnd = useCallback((e) => {
     const lat = e.latLng.lat()
@@ -214,10 +237,19 @@ export default function VendedorTiendaEditPage() {
     const pos = { lat, lng }
     setMarkerPos(pos)
     setMapCenter(pos)
-    upd('latitud',  lat.toFixed(6))
-    upd('longitud', lng.toFixed(6))
-    setCoordMsg(true)
-    setTimeout(() => setCoordMsg(false), 3000)
+    setForm(f => ({ ...f, latitud: lat.toFixed(6), longitud: lng.toFixed(6) }))
+    setSyncStatus('syncing')
+    // Reverse geocoding: coords → dirección
+    const geocoder = new window.google.maps.Geocoder()
+    geocoder.geocode({ location: pos }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const addr = results[0].formatted_address
+        console.log('[Reverse geocoding]', pos, '→', addr)
+        setForm(f => ({ ...f, direccion: addr }))
+        showMsg('📍 Dirección actualizada')
+      }
+      setSyncStatus('synced')
+    })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveWhatsapp = async () => {
@@ -488,16 +520,32 @@ export default function VendedorTiendaEditPage() {
         {/* ── 5. Ubicación y contacto de la tienda ──────────────── */}
         <Section title="Ubicación y contacto">
           <Field label="Dirección" required error={errs.direccion}>
-            <input
-              type="text" value={form.direccion}
-              onChange={e => upd('direccion', e.target.value)}
-              placeholder="Av. O'Higgins 123, Angol"
-              className={iCls(errs.direccion)}
-            />
+            {mapsLoaded ? (
+              <Autocomplete
+                onLoad={ac => { autocompleteRef.current = ac }}
+                onPlaceChanged={handlePlaceChanged}
+                options={{ componentRestrictions: { country: 'cl' }, fields: ['formatted_address', 'geometry'] }}
+              >
+                <input
+                  type="text"
+                  value={form.direccion}
+                  onChange={e => { upd('direccion', e.target.value); setSyncStatus('idle') }}
+                  placeholder="Ej: Sevilla 632, Angol"
+                  className={iCls(errs.direccion)}
+                />
+              </Autocomplete>
+            ) : (
+              <input
+                type="text" value={form.direccion}
+                onChange={e => upd('direccion', e.target.value)}
+                placeholder="Ej: Sevilla 632, Angol"
+                className={iCls(errs.direccion)}
+              />
+            )}
           </Field>
 
-          {/* Botón mapa */}
-          <div className="flex items-center gap-3">
+          {/* Botón mapa + indicador de sync */}
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               type="button"
               onClick={() => showMap ? setShowMap(false) : handleOpenMap()}
@@ -505,8 +553,18 @@ export default function VendedorTiendaEditPage() {
             >
               📍 {showMap ? 'Ocultar mapa' : 'Ver en mapa'}
             </button>
-            {form.latitud && form.longitud && (
-              <span className="text-[10px] text-white/30">
+            {syncStatus === 'synced' && (
+              <span className="flex items-center gap-1 text-[11px] text-green-400 bg-green-900/20 px-2 py-1 rounded-full">
+                ✅ Sincronizado
+              </span>
+            )}
+            {syncStatus === 'syncing' && (
+              <span className="flex items-center gap-1 text-[11px] text-yellow-400 bg-yellow-900/20 px-2 py-1 rounded-full animate-pulse">
+                ⚠️ Actualizando...
+              </span>
+            )}
+            {syncStatus !== 'idle' && form.latitud && form.longitud && (
+              <span className="text-[10px] text-white/25">
                 {parseFloat(form.latitud).toFixed(5)}, {parseFloat(form.longitud).toFixed(5)}
               </span>
             )}
@@ -530,18 +588,19 @@ export default function VendedorTiendaEditPage() {
                     <Marker
                       position={markerPos}
                       draggable
+                      onDrag={handleMarkerDrag}
                       onDragEnd={handleMarkerDragEnd}
                     />
                   )}
                 </GoogleMap>
               )}
-              {coordMsg && (
+              {mapMsg && (
                 <p className="text-xs text-green-400 text-center py-2 bg-green-900/10">
-                  📍 Coordenadas actualizadas
+                  {mapMsg}
                 </p>
               )}
               <p className="text-[10px] text-white/25 text-center py-1.5">
-                Arrastra el pin para ajustar la ubicación exacta
+                Arrastra el pin para ajustar · la dirección se actualiza automáticamente
               </p>
             </div>
           )}
