@@ -110,7 +110,7 @@ class TiendaViewSet(viewsets.ModelViewSet):
         methods=['get'],
         permission_classes=[AllowAny]
     )
-    def calcular_envio(self, request, pk=None):
+    def calcular_envio(self, request, slug=None):
         """
         Calcula el costo de envío para una dirección dada.
         Usa Ray Casting para cuadrantes + Haversine para radios.

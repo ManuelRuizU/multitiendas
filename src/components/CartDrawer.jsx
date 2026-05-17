@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { Autocomplete, GoogleMap, Marker } from '@react-google-maps/api'
 import api from '../services/api'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/AuthContext'
+import { useGoogleMaps } from '../hooks/useGoogleMaps'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -23,6 +25,15 @@ const NOTAS_PH = {
   SERVICIOS: 'Disponible de tarde, detalles del trabajo...',
   OTRO:      'Instrucciones especiales para la tienda...',
 }
+
+const ANGOL_CENTER   = { lat: -37.7963, lng: -72.7054 }
+const MAP_SMALL      = { width: '100%', height: '150px' }
+const DARK_STYLES    = [
+  { elementType: 'geometry',            stylers: [{ color: '#1a1a2e' }] },
+  { elementType: 'labels.text.fill',    stylers: [{ color: '#9ca3af' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#374151' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f172a' }] },
+]
 
 function storeStatus(g) {
   if (!g.tienda_hora_apertura) return 'open'
@@ -119,6 +130,16 @@ export default function CartDrawer() {
   const [errs,    setErrs]    = useState({})
   const [allDone, setAllDone] = useState(false)
 
+  // Google Maps & address
+  const { isLoaded: mapsLoaded } = useGoogleMaps()
+  const addrAcRef = useRef(null)
+  const [addrLat,        setAddrLat]        = useState(null)
+  const [addrLng,        setAddrLng]        = useState(null)
+  const [addrText,       setAddrText]       = useState('')
+  const [addrMapCenter,  setAddrMapCenter]  = useState(ANGOL_CENTER)
+  const [envioPerTienda, setEnvioPerTienda] = useState({})
+  const [saveAddr,       setSaveAddr]       = useState(false)
+
   // Body scroll lock
   useEffect(() => {
     document.body.style.overflow = isCartOpen ? 'hidden' : ''
@@ -176,6 +197,69 @@ export default function CartDrawer() {
     setTipo(t); setMetod(m)
   }, [step, cart])
 
+  // Recalculate shipping when address coordinates change
+  useEffect(() => {
+    if (!addrLat || !addrLng || !cart?.grupos) return
+    cart.grupos
+      .filter(g => (tipo[g.tienda_id] ?? 'REPARTO') === 'REPARTO' && g.tienda_slug)
+      .forEach(async (g) => {
+        console.log('[CartDrawer] Calculando envío:', { lat: addrLat, lng: addrLng, slug: g.tienda_slug })
+        try {
+          const { data } = await api.get(
+            `tiendas/${g.tienda_slug}/calcular_envio/?lat=${addrLat}&lng=${addrLng}`
+          )
+          console.log('[CartDrawer] Respuesta envío:', data)
+          setEnvioPerTienda(prev => ({
+            ...prev,
+            [g.tienda_id]: { costo: data.costo_envio ?? 0, cubierto: data.cubierto },
+          }))
+        } catch (err) {
+          console.error('[CartDrawer] Error calculando envío:', err?.response?.data ?? err.message)
+        }
+      })
+  }, [addrLat, addrLng]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Google Maps address callbacks ─────────────────────────────────────────
+  const handleAddrPlaceChanged = useCallback(() => {
+    const place = addrAcRef.current?.getPlace()
+    if (!place?.geometry?.location) return
+    const loc  = place.geometry.location
+    const lat  = loc.lat()
+    const lng  = loc.lng()
+    const text = place.formatted_address || place.name || ''
+    console.log('[CartDrawer] Dirección seleccionada:', { lat, lng, text })
+    setAddrLat(lat);  setAddrLng(lng)
+    setAddrText(text); setAddrMapCenter({ lat, lng })
+    setSelAddr(null)
+  }, [])
+
+  const handleAddrMarkerDragEnd = useCallback((e) => {
+    const lat = e.latLng.lat()
+    const lng = e.latLng.lng()
+    setAddrLat(lat);  setAddrLng(lng)
+    setAddrMapCenter({ lat, lng })
+    const geocoder = new window.google.maps.Geocoder()
+    geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+      if (status === 'OK' && results[0]) setAddrText(results[0].formatted_address)
+    })
+  }, [])
+
+  const handleSelectSavedAddr = useCallback((a) => {
+    setSelAddr(a.id)
+    const text = [a.calle, a.numero, a.comuna, a.ciudad].filter(Boolean).join(', ')
+    setAddrText(text)
+    if (window.google?.maps?.Geocoder) {
+      const geocoder = new window.google.maps.Geocoder()
+      geocoder.geocode({ address: `${text}, Chile` }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          const loc = results[0].geometry.location
+          setAddrLat(loc.lat()); setAddrLng(loc.lng())
+          setAddrMapCenter({ lat: loc.lat(), lng: loc.lng() })
+        }
+      })
+    }
+  }, [])
+
   if (pathname === '/checkout') return null
   const isEmpty = !cart || cart.esta_vacio
 
@@ -189,12 +273,9 @@ export default function CartDrawer() {
     if (!user) {
       if (!gNombre.trim())   e.nombre   = 'Nombre requerido'
       if (!gTelefono.trim()) e.telefono = 'Teléfono requerido'
-      const needsAddr = cart?.grupos?.some(g => (tipo[g.tienda_id] ?? 'REPARTO') === 'REPARTO')
-      if (needsAddr) {
-        if (!manAddr.calle.trim())  e.calle  = 'Calle requerida'
-        if (!manAddr.numero.trim()) e.numero = 'Número requerido'
-      }
     }
+    const needsAddr = cart?.grupos?.some(g => (tipo[g.tienda_id] ?? 'REPARTO') === 'REPARTO')
+    if (needsAddr && !addrText.trim()) e.addr = 'Ingresa tu dirección de entrega'
     cart?.grupos?.forEach(g => {
       const s = storeStatus(g)
       if (s === 'closed') e[`cl_${g.tienda_id}`] = `${g.tienda_nombre} está cerrada`
@@ -214,12 +295,19 @@ export default function CartDrawer() {
     const nombre   = user ? [user.first_name, user.last_name].filter(Boolean).join(' ') : gNombre
     const telefono = user ? '' : gTelefono
     const email    = user ? user.email : gEmail
-    let dir = ''
-    if (!user) {
-      dir = [manAddr.calle, manAddr.numero, manAddr.comuna, manAddr.ciudad].filter(Boolean).join(', ')
-    } else if (selAddr) {
-      const a = addrs.find(d => d.id === selAddr)
-      if (a) dir = [a.calle, a.numero, a.comuna, a.ciudad].filter(Boolean).join(', ')
+    let dir = addrText
+    if (!dir) {
+      if (!user) {
+        dir = [manAddr.calle, manAddr.numero, manAddr.comuna, manAddr.ciudad].filter(Boolean).join(', ')
+      } else if (selAddr) {
+        const a = addrs.find(d => d.id === selAddr)
+        if (a) dir = [a.calle, a.numero, a.comuna, a.ciudad].filter(Boolean).join(', ')
+      }
+    }
+    if (user && saveAddr && addrText && !selAddr) {
+      try {
+        await api.post('usuarios/direcciones/', { calle: addrText, numero: '', comuna: 'Angol', ciudad: 'Angol' })
+      } catch {}
     }
     const result = grupos.map(g => {
       const t = tipo[g.tienda_id]  ?? 'REPARTO'
@@ -357,6 +445,16 @@ export default function CartDrawer() {
                 onBack={() => setStep(user ? 'cart' : 'auth')}
                 onClose={closeCart}
                 onConfirm={handleConfirm}
+                mapsLoaded={mapsLoaded}
+                addrAcRef={addrAcRef}
+                addrLat={addrLat}         addrLng={addrLng}
+                addrText={addrText}       setAddrText={setAddrText}
+                addrMapCenter={addrMapCenter}
+                envioPerTienda={envioPerTienda}
+                saveAddr={saveAddr}       setSaveAddr={setSaveAddr}
+                onAddrPlaceChanged={handleAddrPlaceChanged}
+                onAddrMarkerDragEnd={handleAddrMarkerDragEnd}
+                onSelectSavedAddr={handleSelectSavedAddr}
               />
             )}
           </div>
@@ -558,7 +656,12 @@ function CheckoutSlide({
   addrs, selAddr, setSelAddr, manAddr, setManAddr,
   tipo, setTipo, metod, setMetod, notas, setNotas, vuelto, setVuelto, horas, setHoras,
   errs, submitting, onBack, onClose, onConfirm,
+  mapsLoaded, addrAcRef, addrLat, addrLng, addrText, setAddrText, addrMapCenter,
+  envioPerTienda, saveAddr, setSaveAddr,
+  onAddrPlaceChanged, onAddrMarkerDragEnd, onSelectSavedAddr,
 }) {
+  const [useNewAddr, setUseNewAddr] = useState(false)
+
   const grupos      = cart?.grupos ?? []
   const hasReparto  = grupos.some(g => (tipo[g.tienda_id] ?? 'REPARTO') === 'REPARTO')
   const closedGrups = grupos.filter(g => storeStatus(g) === 'closed')
@@ -569,6 +672,15 @@ function CheckoutSlide({
   const upNotas = (id, v) => setNotas(p => ({ ...p, [id]: v }))
   const upVuelto= (id, v) => setVuelto(p=> ({ ...p, [id]: v }))
   const upHoras = (id, v) => setHoras(p => ({ ...p, [id]: v }))
+
+  const subtotalGlobal = grupos.reduce((acc, g) => acc + parseInt(g.subtotal ?? 0), 0)
+  const totalConEnvio  = grupos.reduce((acc, g) => {
+    const sub  = parseInt(g.subtotal ?? 0)
+    const t    = tipo[g.tienda_id] ?? 'REPARTO'
+    const info = envioPerTienda?.[g.tienda_id]
+    const envio = t === 'REPARTO' && info?.cubierto ? (info.costo ?? 0) : 0
+    return acc + sub + envio
+  }, 0) || parseInt(cart?.total_global ?? 0)
 
   return (
     <>
@@ -624,6 +736,110 @@ function CheckoutSlide({
           </section>
         )}
 
+        {/* ── Dirección de entrega ── (primero, para calcular envío antes del pago) */}
+        {hasReparto && (
+          <section>
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold text-white/70">¿A dónde enviamos tu pedido?</h3>
+              <p className="text-[11px] text-white/35 mt-0.5">Puede ser diferente a tu dirección personal</p>
+            </div>
+
+            {/* Saved address cards */}
+            {user && addrs.length > 0 && !useNewAddr && (
+              <div className="space-y-2">
+                {addrs.map(a => (
+                  <button
+                    key={a.id}
+                    onClick={() => onSelectSavedAddr(a)}
+                    className={[
+                      'w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-all',
+                      selAddr === a.id
+                        ? 'bg-orange-500/10 border-orange-500/40'
+                        : 'bg-white/[0.03] border-white/8 hover:bg-white/[0.06]',
+                    ].join(' ')}
+                  >
+                    <span className="text-base shrink-0 mt-0.5">📍</span>
+                    <div className="flex-1 min-w-0">
+                      {a.etiqueta && (
+                        <p className="text-xs font-semibold text-white/60 mb-0.5">{a.etiqueta}</p>
+                      )}
+                      <p className="text-sm text-white leading-snug">{a.calle} {a.numero}</p>
+                      <p className="text-xs text-white/40 mt-0.5">{a.comuna}, {a.ciudad}</p>
+                    </div>
+                    {selAddr === a.id && <span className="text-orange-400 shrink-0 font-bold">✓</span>}
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setUseNewAddr(true); setSelAddr(null) }}
+                  className="w-full text-xs text-orange-400/70 hover:text-orange-400 transition-colors py-1.5 text-center"
+                >
+                  + Usar otra dirección
+                </button>
+                {addrLat && addrLng && mapsLoaded && (
+                  <div className="rounded-xl overflow-hidden mt-1">
+                    <GoogleMap mapContainerStyle={MAP_SMALL} center={addrMapCenter} zoom={16}
+                      options={{ styles: DARK_STYLES, disableDefaultUI: true, gestureHandling: 'none' }}>
+                      <Marker position={{ lat: addrLat, lng: addrLng }} draggable onDragEnd={onAddrMarkerDragEnd} />
+                    </GoogleMap>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Autocomplete */}
+            {(!user || addrs.length === 0 || useNewAddr) && (
+              <div className="space-y-2">
+                {user && addrs.length === 0 && (
+                  <p className="text-xs text-white/35 -mt-1">No tienes direcciones guardadas. Ingresa una:</p>
+                )}
+                {user && useNewAddr && (
+                  <button onClick={() => setUseNewAddr(false)}
+                    className="text-xs text-white/40 hover:text-white/60 transition-colors mb-1">
+                    ← Mis direcciones guardadas
+                  </button>
+                )}
+                {mapsLoaded ? (
+                  <Autocomplete
+                    onLoad={ac => { addrAcRef.current = ac }}
+                    onPlaceChanged={onAddrPlaceChanged}
+                    options={{ componentRestrictions: { country: 'cl' }, fields: ['formatted_address', 'geometry'] }}
+                  >
+                    <input type="text" value={addrText} onChange={e => setAddrText(e.target.value)}
+                      placeholder="Ej: Los Aromos 456, Angol"
+                      className={[
+                        'w-full bg-white/[0.06] border rounded-xl px-3 py-2.5 text-sm text-white',
+                        'placeholder:text-white/20 focus:outline-none transition-colors',
+                        errs.addr ? 'border-red-500/60' : 'border-white/10 focus:border-orange-500/50',
+                      ].join(' ')}
+                    />
+                  </Autocomplete>
+                ) : (
+                  <input type="text" value={addrText} onChange={e => setAddrText(e.target.value)}
+                    placeholder="Cargando mapa…"
+                    className="w-full bg-white/[0.06] border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none opacity-60" />
+                )}
+                {errs.addr && <p className="text-[10px] text-red-400">{errs.addr}</p>}
+                {addrLat && addrLng && mapsLoaded && (
+                  <div className="rounded-xl overflow-hidden">
+                    <GoogleMap mapContainerStyle={MAP_SMALL} center={addrMapCenter} zoom={16}
+                      options={{ styles: DARK_STYLES, disableDefaultUI: true, gestureHandling: 'cooperative' }}>
+                      <Marker position={{ lat: addrLat, lng: addrLng }} draggable onDragEnd={onAddrMarkerDragEnd} />
+                    </GoogleMap>
+                    <p className="text-[10px] text-white/30 mt-1 text-center">Arrastra el pin para ajustar</p>
+                  </div>
+                )}
+                {user && (
+                  <label className="flex items-center gap-2 cursor-pointer select-none mt-1">
+                    <input type="checkbox" checked={saveAddr} onChange={e => setSaveAddr(e.target.checked)}
+                      className="accent-orange-500 w-3.5 h-3.5" />
+                    <span className="text-xs text-white/45">Guardar para próximas compras</span>
+                  </label>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
         {/* ── Config por tienda ── */}
         {grupos.map(g => {
           const s        = storeStatus(g)
@@ -641,11 +857,8 @@ function CheckoutSlide({
           const notesPh = NOTAS_PH[g.tienda_tipo_negocio] ?? NOTAS_PH.OTRO
 
           return (
-            <section
-              key={g.tienda_id}
-              className="bg-white/[0.03] border border-white/8 rounded-2xl overflow-hidden"
-            >
-              {/* Store header row */}
+            <section key={g.tienda_id} className="bg-white/[0.03] border border-white/8 rounded-2xl overflow-hidden">
+              {/* Store header */}
               <div className="flex items-center gap-2 px-4 py-3 border-b border-white/8">
                 {g.tienda_logo
                   ? <img src={g.tienda_logo} alt="" className="w-6 h-6 rounded-lg object-cover shrink-0" />
@@ -655,11 +868,9 @@ function CheckoutSlide({
                 {g.tienda_hora_apertura && (
                   <span className={[
                     'text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0',
-                    s === 'open'
-                      ? 'bg-green-500/15 text-green-400 border-green-500/25'
-                      : s === 'schedulable'
-                        ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/25'
-                        : 'bg-red-500/15 text-red-400 border-red-500/25',
+                    s === 'open' ? 'bg-green-500/15 text-green-400 border-green-500/25'
+                      : s === 'schedulable' ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/25'
+                      : 'bg-red-500/15 text-red-400 border-red-500/25',
                   ].join(' ')}>
                     {s === 'open' ? '● Abierto' : s === 'schedulable' ? '○ Programar' : '○ Cerrado'}
                   </span>
@@ -667,70 +878,50 @@ function CheckoutSlide({
               </div>
 
               <div className="px-4 py-3 space-y-4">
-                {/* Tipo de entrega */}
+                {/* a) Tipo de entrega */}
                 <div>
                   <p className="text-xs text-white/45 font-medium mb-2">Tipo de entrega</p>
                   <div className="flex gap-2">
                     {['REPARTO', 'RETIRO'].map(opt => (
-                      <button
-                        key={opt}
-                        onClick={() => upTipo(g.tienda_id, opt)}
+                      <button key={opt} onClick={() => upTipo(g.tienda_id, opt)}
                         className={[
                           'flex-1 py-2 rounded-xl text-xs font-semibold border transition-all',
                           t === opt
                             ? 'bg-orange-500/20 border-orange-500/40 text-orange-300'
                             : 'bg-white/5 border-white/10 text-white/40 hover:text-white/70 hover:bg-white/8',
-                        ].join(' ')}
-                      >
+                        ].join(' ')}>
                         {opt === 'REPARTO' ? '🚚 Reparto' : '🏪 Retiro'}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Método de pago */}
-                <div>
-                  <p className="text-xs text-white/45 font-medium mb-2">Método de pago</p>
-                  <div className="flex flex-wrap gap-2">
-                    {metodsDisp.map(cod => (
-                      <button
-                        key={cod}
-                        onClick={() => upMetod(g.tienda_id, cod)}
-                        className={[
-                          'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-                          m === cod
-                            ? 'bg-orange-500/20 border-orange-500/40 text-orange-300'
-                            : 'bg-white/5 border-white/10 text-white/40 hover:text-white/70',
-                        ].join(' ')}
-                      >
-                        {PAGO_ICON[cod]} {PAGO_LABEL[cod]}
-                      </button>
-                    ))}
+                {/* b) Costo de envío (inline badge, visible after dirección) */}
+                {t === 'REPARTO' && addrLat && envioPerTienda?.[g.tienda_id] && (
+                  <div className={[
+                    'flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium',
+                    envioPerTienda[g.tienda_id].cubierto
+                      ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                      : 'bg-red-500/10 border border-red-500/20 text-red-400',
+                  ].join(' ')}>
+                    {envioPerTienda[g.tienda_id].cubierto ? (
+                      <><span>🚚</span><span>Envío: <strong>{envioPerTienda[g.tienda_id].costo === 0 ? 'Gratis 🎉' : fmt(envioPerTienda[g.tienda_id].costo)}</strong></span></>
+                    ) : (
+                      <><span>⚠️</span><span>Dirección fuera de la zona de cobertura</span></>
+                    )}
                   </div>
+                )}
 
-                  {/* Vuelto (solo efectivo) */}
-                  {m === 'EFECTIVO' && (
-                    <div className="mt-3 bg-white/[0.03] border border-white/8 rounded-xl p-3">
-                      <p className="text-xs text-white/45 mb-2">¿Con cuánto pagas? (opcional)</p>
-                      <input
-                        type="number"
-                        min={totalNum}
-                        step="1000"
-                        value={v}
-                        onChange={e => upVuelto(g.tienda_id, e.target.value)}
-                        placeholder={`Ej: ${fmt(Math.ceil(totalNum / 1000) * 1000)}`}
-                        className="w-full bg-white/[0.06] border border-white/10 focus:border-orange-500/50 focus:outline-none rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 transition-colors"
-                      />
-                      {cambio > 0 && (
-                        <p className="text-xs text-green-400 mt-1.5 font-medium">
-                          Vuelto: <span className="font-bold">{fmt(cambio)}</span>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {/* b) RETIRO link */}
+                {t === 'RETIRO' && (
+                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(g.tienda_nombre + ', Angol, Chile')}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs text-orange-400/70 hover:text-orange-400 transition-colors">
+                    <span>📍</span> Cómo llegar a {g.tienda_nombre}
+                  </a>
+                )}
 
-                {/* Horario programado */}
+                {/* c) Hora sugerida */}
                 {s === 'schedulable' && (
                   <div className="bg-yellow-500/8 border border-yellow-500/20 rounded-xl p-3">
                     <p className="text-xs text-yellow-400/80 font-medium mb-2">
@@ -741,108 +932,104 @@ function CheckoutSlide({
                         </span>
                       )}
                     </p>
-                    <input
-                      type="time"
-                      value={h}
-                      onChange={e => upHoras(g.tienda_id, e.target.value)}
-                      className="w-full bg-white/[0.06] border border-white/10 focus:border-yellow-500/60 focus:outline-none rounded-lg px-3 py-1.5 text-sm text-white transition-colors"
-                    />
+                    <input type="time" value={h} onChange={e => upHoras(g.tienda_id, e.target.value)}
+                      className="w-full bg-white/[0.06] border border-white/10 focus:border-yellow-500/60 focus:outline-none rounded-lg px-3 py-1.5 text-sm text-white transition-colors" />
                     {errs[`h_${g.tienda_id}`] && (
                       <p className="text-[10px] text-red-400 mt-1">{errs[`h_${g.tienda_id}`]}</p>
                     )}
                   </div>
                 )}
 
-                {/* Notas */}
+                {/* d) Método de pago */}
                 <div>
-                  <p className="text-xs text-white/45 font-medium mb-2">Notas para la tienda (opcional)</p>
-                  <textarea
-                    rows={2}
-                    value={n}
-                    onChange={e => upNotas(g.tienda_id, e.target.value)}
-                    placeholder={notesPh}
-                    className="w-full bg-white/[0.06] border border-white/10 focus:border-orange-500/40 focus:outline-none rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 resize-none transition-colors leading-relaxed"
-                  />
+                  <p className="text-xs text-white/45 font-medium mb-2">Método de pago</p>
+                  <div className="flex flex-wrap gap-2">
+                    {metodsDisp.map(cod => (
+                      <button key={cod} onClick={() => upMetod(g.tienda_id, cod)}
+                        className={[
+                          'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                          m === cod
+                            ? 'bg-orange-500/20 border-orange-500/40 text-orange-300'
+                            : 'bg-white/5 border-white/10 text-white/40 hover:text-white/70',
+                        ].join(' ')}>
+                        {PAGO_ICON[cod]} {PAGO_LABEL[cod]}
+                      </button>
+                    ))}
+                  </div>
+                  {m === 'EFECTIVO' && (
+                    <div className="mt-3 bg-white/[0.03] border border-white/8 rounded-xl p-3">
+                      <p className="text-xs text-white/45 mb-2">¿Con cuánto pagas? (opcional)</p>
+                      <input type="number" min={totalNum} step="1000" value={v}
+                        onChange={e => upVuelto(g.tienda_id, e.target.value)}
+                        placeholder={`Ej: ${fmt(Math.ceil(totalNum / 1000) * 1000)}`}
+                        className="w-full bg-white/[0.06] border border-white/10 focus:border-orange-500/50 focus:outline-none rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 transition-colors" />
+                      {cambio > 0 && (
+                        <p className="text-xs text-green-400 mt-1.5 font-medium">
+                          Vuelto: <span className="font-bold">{fmt(cambio)}</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {/* Group total row */}
-                <div className="flex justify-between items-center text-xs text-white/40 pt-1 border-t border-white/8">
-                  <span>
-                    {g.items.length} producto{g.items.length !== 1 ? 's' : ''}
-                    {t === 'REPARTO' && parseInt(g.costo_envio ?? 0) > 0
-                      ? ` + envío ${fmt(g.costo_envio)}`
-                      : ''}
-                  </span>
-                  <span className="font-bold text-white/60">{fmt(g.total ?? g.subtotal ?? 0)}</span>
+                {/* e) Notas */}
+                <div>
+                  <p className="text-xs text-white/45 font-medium mb-2">Notas para la tienda (opcional)</p>
+                  <textarea rows={2} value={n} onChange={e => upNotas(g.tienda_id, e.target.value)}
+                    placeholder={notesPh}
+                    className="w-full bg-white/[0.06] border border-white/10 focus:border-orange-500/40 focus:outline-none rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 resize-none transition-colors leading-relaxed" />
                 </div>
               </div>
             </section>
           )
         })}
 
-        {/* ── Dirección de entrega ── */}
-        {hasReparto && (
-          <section>
-            <SectionTitle>Dirección de entrega</SectionTitle>
-            {user && addrs.length > 0 ? (
-              <div className="space-y-2">
-                {addrs.map(a => (
-                  <button
-                    key={a.id}
-                    onClick={() => setSelAddr(a.id)}
-                    className={[
-                      'w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-all',
-                      selAddr === a.id
-                        ? 'bg-orange-500/10 border-orange-500/40'
-                        : 'bg-white/[0.03] border-white/8 hover:bg-white/[0.06]',
-                    ].join(' ')}
-                  >
-                    <span className="text-base shrink-0 mt-0.5">📍</span>
-                    <div className="flex-1 min-w-0">
-                      {a.etiqueta && (
-                        <p className="text-xs font-semibold text-white/60 mb-0.5">{a.etiqueta}</p>
-                      )}
-                      <p className="text-sm text-white leading-snug">{a.calle} {a.numero}</p>
-                      <p className="text-xs text-white/40 mt-0.5">{a.comuna}, {a.ciudad}</p>
-                    </div>
-                    {selAddr === a.id && (
-                      <span className="text-orange-400 shrink-0 font-bold">✓</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {user && addrs.length === 0 && (
-                  <p className="text-xs text-white/35 -mt-1 mb-1">
-                    No tienes direcciones guardadas. Ingresa una:
-                  </p>
-                )}
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Calle" required value={manAddr.calle}
-                    onChange={v => setManAddr(a => ({ ...a, calle: v }))}
-                    placeholder="Los Aromos" error={errs.calle} />
-                  <Field label="Número" required value={manAddr.numero}
-                    onChange={v => setManAddr(a => ({ ...a, numero: v }))}
-                    placeholder="456" error={errs.numero} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Comuna" value={manAddr.comuna}
-                    onChange={v => setManAddr(a => ({ ...a, comuna: v }))}
-                    placeholder="Angol" />
-                  <Field label="Ciudad" value={manAddr.ciudad}
-                    onChange={v => setManAddr(a => ({ ...a, ciudad: v }))}
-                    placeholder="Angol" />
-                </div>
-              </div>
-            )}
-          </section>
-        )}
+        {/* ── Resumen ── */}
+        <div className="bg-white/[0.03] border border-white/8 rounded-2xl p-4">
+          <p className="text-xs font-bold text-white/45 uppercase tracking-widest mb-3">Resumen</p>
 
-        {/* ── Total global ── */}
-        <div className="flex justify-between items-center py-2 border-t border-white/10">
-          <span className="font-bold text-base text-white">Total a pagar</span>
-          <span className="font-black text-xl text-orange-400">{fmt(cart?.total_global ?? 0)}</span>
+          {/* Líneas por tienda (solo si hay más de una) */}
+          {grupos.length > 1 && grupos.map(g => (
+            <div key={g.tienda_id} className="flex justify-between text-xs text-white/35 mb-1.5">
+              <span className="truncate pr-2">{g.tienda_nombre}</span>
+              <span className="shrink-0">{fmt(g.subtotal ?? 0)}</span>
+            </div>
+          ))}
+
+          <div className={['space-y-2', grupos.length > 1 ? 'border-t border-white/8 pt-3 mt-1' : ''].join(' ')}>
+            {/* Subtotal */}
+            <div className="flex justify-between text-sm text-white/60">
+              <span>Subtotal</span>
+              <span className="font-medium">{fmt(subtotalGlobal)}</span>
+            </div>
+
+            {/* Envío por cada tienda en REPARTO */}
+            {grupos
+              .filter(g => (tipo[g.tienda_id] ?? 'REPARTO') === 'REPARTO')
+              .map(g => {
+                const repartoGrupos = grupos.filter(g2 => (tipo[g2.tienda_id] ?? 'REPARTO') === 'REPARTO')
+                const label = repartoGrupos.length > 1 ? `Envío (${g.tienda_nombre})` : 'Envío'
+                const info  = envioPerTienda?.[g.tienda_id]
+                const val   = !addrLat        ? <span className="text-white/30 italic">A confirmar</span>
+                            : info === undefined ? <span className="text-white/20">…</span>
+                            : !info.cubierto  ? <span className="text-red-400/70">Fuera de cobertura</span>
+                            : info.costo === 0 ? <span className="text-green-400 font-medium">Gratis 🎉</span>
+                            :                   <span>{fmt(info.costo)}</span>
+                return (
+                  <div key={g.tienda_id} className="flex justify-between text-sm text-white/60">
+                    <span>{label}</span>
+                    {val}
+                  </div>
+                )
+              })
+            }
+
+            {/* Separador y total */}
+            <div className="flex justify-between items-center pt-2.5 border-t border-white/10">
+              <span className="font-bold text-base text-white">Total a pagar</span>
+              <span className="font-black text-xl text-orange-400">{fmt(totalConEnvio)}</span>
+            </div>
+          </div>
         </div>
 
         <p className="text-[11px] text-white/25 text-center leading-relaxed pb-2">
