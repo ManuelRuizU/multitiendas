@@ -157,6 +157,29 @@ export default function VendedorTiendaEditPage() {
 
   const upd = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
+  // Geocodificar automáticamente cuando cambia la dirección (debounce 800ms)
+  useEffect(() => {
+    if (!mapsLoaded || !form?.direccion?.trim()) return
+    const timer = setTimeout(() => {
+      const geocoder = new window.google.maps.Geocoder()
+      const query = `${form.direccion.trim()}, Angol, Chile`
+      geocoder.geocode({ address: query }, (results, status) => {
+        console.log('[Geocoding auto]', query, '→', status, results?.[0]?.geometry?.location?.toString())
+        if (status === 'OK') {
+          const loc = results[0].geometry.location
+          const pos = { lat: loc.lat(), lng: loc.lng() }
+          setMarkerPos(pos)
+          setMapCenter(pos)
+          upd('latitud',  loc.lat().toFixed(6))
+          upd('longitud', loc.lng().toFixed(6))
+          setCoordMsg(true)
+          setTimeout(() => setCoordMsg(false), 3000)
+        }
+      })
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [form?.direccion, mapsLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -178,32 +201,11 @@ export default function VendedorTiendaEditPage() {
       const pos = { lat, lng }
       setMapCenter(pos)
       setMarkerPos(pos)
-      setShowMap(true)
-    } else if (mapsLoaded && form.direccion.trim()) {
-      const geocoder = new window.google.maps.Geocoder()
-      const query = `${form.direccion}, Angol, Chile`
-      geocoder.geocode({ address: query }, (results, status) => {
-        console.log('[Geocoding]', query, '→', status, results?.[0]?.geometry?.location?.toString())
-        if (status === 'OK') {
-          const loc = results[0].geometry.location
-          const pos = { lat: loc.lat(), lng: loc.lng() }
-          setMapCenter(pos)
-          setMarkerPos(pos)
-          upd('latitud',  loc.lat().toFixed(6))
-          upd('longitud', loc.lng().toFixed(6))
-          setCoordMsg(true)
-          setTimeout(() => setCoordMsg(false), 3000)
-        } else {
-          setMapCenter(ANGOL_CENTER)
-          setMarkerPos(ANGOL_CENTER)
-        }
-        setShowMap(true)
-      })
     } else {
       setMapCenter(ANGOL_CENTER)
       setMarkerPos(ANGOL_CENTER)
-      setShowMap(true)
     }
+    setShowMap(true)
   }
 
   const handleMarkerDragEnd = useCallback((e) => {
