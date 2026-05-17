@@ -12,7 +12,15 @@ export default function Home() {
   const wrapperRefs   = useRef([])
   const didDragRef    = useRef(false)
 
-  const [categories, setCategories] = useState([])
+  const [categories,  setCategories]  = useState([])
+  const [heroBanner,  setHeroBanner]  = useState(null)
+
+  // ── Cargar config de plataforma (hero banner) ────────────────────
+  useEffect(() => {
+    api.get('configuracion/')
+      .then(({ data }) => { if (data.hero_banner) setHeroBanner(data.hero_banner) })
+      .catch(() => {})
+  }, [])
 
   // ── Cargar categorías ────────────────────────────────────────────
   useEffect(() => {
@@ -153,6 +161,18 @@ export default function Home() {
     <div className="min-h-screen bg-slate-950 text-white">
 
       <Header subtitle="Pide a tus tiendas favoritas" />
+
+      {/* ── Hero banner ── */}
+      {heroBanner && (
+        <div className="relative w-full overflow-hidden">
+          <img
+            src={heroBanner}
+            alt="MultiTienda Angol"
+            className="w-full h-44 object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 to-transparent pointer-events-none" />
+        </div>
+      )}
 
       <main className="max-w-5xl mx-auto px-4 pt-10 pb-16">
 

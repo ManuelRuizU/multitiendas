@@ -46,6 +46,13 @@ class PlatformSetting(models.Model):
         null=True,
         help_text="Logo principal de la plataforma. Recomendado: PNG transparente, 200x60px."
     )
+    hero_banner = models.ImageField(
+        "Banner de la página principal",
+        upload_to='platform_assets/',
+        blank=True,
+        null=True,
+        help_text="Imagen hero de la página de inicio. Recomendado: 1200x400px."
+    )
     favicon = models.ImageField(
         "Favicon",
         upload_to='platform_assets/',
